@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+.env/
+
+# Variables d'environnement
+.env
+.env.local
+
+# Données / bases locales
+*.pkl
+*.json
+faces_db.json
+gestures_db.json
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE / éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Fichiers temporaires
+*.tmp
+*.log
+
+# Ancien monolithe (optionnel — retire cette ligne si tu veux le garder)
+app_backup.py
