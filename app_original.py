@@ -16,61 +16,29 @@ from transformers import pipeline
 from bson.objectid import ObjectId
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 import av
+from streamlit_autorefresh import st_autorefresh
 
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
 # CONFIGURATION DE LA PAGE
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="VisionIA ÔÇô Reconnaissance d'images",
-    page_icon="­ƒöì",
+    page_title="VisionIA – Reconnaissance d'images",
+    page_icon="🔍",
     layout="wide"
 )
 
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-# CHARGEMENT DU MOD├êLE (mis en cache)
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
+# CHARGEMENT DU MODÈLE (mis en cache)
+# ─────────────────────────────────────────────
 @st.cache_resource
 def load_model():
     return pipeline("image-classification", model="google/vit-base-patch16-224")
 
 classifier = load_model()
 
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-# CHARGEMENT MOD├êLE TENSORFLOW ÔÇô MobileNetV2
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-@st.cache_resource
-def load_tf_model():
-    try:
-        import tensorflow as tf
-        model      = tf.keras.applications.MobileNetV2(weights="imagenet")
-        preprocess = tf.keras.applications.mobilenet_v2.preprocess_input
-        decode     = tf.keras.applications.mobilenet_v2.decode_predictions
-        return model, preprocess, decode
-    except Exception:
-        return None, None, None
-
-_tf_model, _tf_preprocess, _tf_decode = load_tf_model()
-
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-# TENSORFLOW FEATURE EXTRACTOR ÔÇô embeddings (visages + gestes)
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-@st.cache_resource
-def load_tf_extractor():
-    try:
-        import tensorflow as tf
-        model      = tf.keras.applications.MobileNetV2(
-            weights="imagenet", include_top=False, pooling="avg"
-        )
-        preprocess = tf.keras.applications.mobilenet_v2.preprocess_input
-        return model, preprocess
-    except Exception:
-        return None, None
-
-_tf_extractor, _tf_ext_prep = load_tf_extractor()
-
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
 # CONNEXION MONGODB
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
 @st.cache_resource
 def init_connection():
     return pymongo.MongoClient("mongodb://localhost:27017/")
@@ -79,11 +47,10 @@ client = init_connection()
 db = client["visionai_db"]
 collection = db["images"]
 
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
 # RECONNAISSANCE FACIALE (FaceNet via facenet-pytorch)
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-FACES_DB_FILE    = "faces_db.pkl"
-FACES_DB_TF_FILE = "faces_db_tf.pkl"
+# ─────────────────────────────────────────────
+FACES_DB_FILE = "faces_db.pkl"
 
 @st.cache_resource
 def load_face_models():
@@ -117,128 +84,67 @@ def get_embedding(pil_image):
         return None
 
 def enregistrer_visage(pil_image, nom):
-    """Ajoute un visage au registre (FaceNet + TF MobileNetV2)."""
+    """Ajoute un visage au registre."""
     emb = get_embedding(pil_image)
     if emb is None:
-        return False, "ÔÜá´©Å Aucun visage d├®tect├® dans l'image. R├®essaie avec un visage bien visible."
+        return False, "⚠️ Aucun visage détecté dans l'image. Réessaie avec un visage bien visible."
     faces_db = charger_db_visages()
     if nom not in faces_db:
         faces_db[nom] = []
     faces_db[nom].append(emb)
     sauvegarder_db_visages(faces_db)
-    # Aussi enregistrer avec TF MobileNetV2
-    emb_tf = get_embedding_tf_face(pil_image)
-    if emb_tf is not None:
-        fdb_tf = charger_db_visages_tf()
-        if nom not in fdb_tf:
-            fdb_tf[nom] = []
-        fdb_tf[nom].append(emb_tf)
-        sauvegarder_db_visages_tf(fdb_tf)
     nb = len(faces_db[nom])
-    return True, f"Ô£à Visage de **{nom}** enregistr├® ! ({nb} photo(s) au total)"
+    return True, f"✅ Visage de **{nom}** enregistré ! ({nb} photo(s) au total)"
 
 def reconnaitre_visage(pil_image):
-    """Identifie la personne via vote FaceNet + TF MobileNetV2."""
+    """Tente d'identifier la personne. Retourne (nom, confiance) ou (None, None)."""
     faces_db = charger_db_visages()
     if not faces_db:
         return None, None
     emb = get_embedding(pil_image)
     if emb is None:
         return None, None
-    # ÔöÇÔöÇ FaceNet ÔöÇÔöÇ
-    best_name_fn, best_dist_fn = None, float("inf")
+    best_name, best_dist = None, float("inf")
     for nom, embeddings in faces_db.items():
         for known_emb in embeddings:
             dist = float(np.linalg.norm(emb - known_emb))
-            if dist < best_dist_fn:
-                best_dist_fn = dist
-                best_name_fn = nom
-    nom_facenet = best_name_fn if best_dist_fn < 0.9 else None
-    # ÔöÇÔöÇ TF MobileNetV2 ÔöÇÔöÇ
-    nom_tf = None
-    fdb_tf = charger_db_visages_tf()
-    if fdb_tf:
-        emb_tf = get_embedding_tf_face(pil_image)
-        if emb_tf is not None:
-            best_name_tf, best_dist_tf = None, float("inf")
-            for nom, embeddings in fdb_tf.items():
-                for known_emb in embeddings:
-                    dist = float(np.linalg.norm(emb_tf - known_emb))
-                    if dist < best_dist_tf:
-                        best_dist_tf = dist
-                        best_name_tf = nom
-            nom_tf = best_name_tf if best_dist_tf < 0.9 else None
-    # ÔöÇÔöÇ Vote majoritaire ÔöÇÔöÇ
-    if nom_facenet and nom_tf:
-        if nom_facenet == nom_tf:
-            conf = max(0, int((1 - best_dist_fn / 0.9) * 100))
-            return nom_facenet, f"{conf}% Ô£ô (FaceNet+TF)"
-        conf = max(0, int((1 - best_dist_fn / 0.9) * 100))
-        return nom_facenet, f"{conf}% (FaceNet)"
-    elif nom_facenet:
-        conf = max(0, int((1 - best_dist_fn / 0.9) * 100))
-        return nom_facenet, f"{conf}% (FaceNet)"
-    elif nom_tf:
-        return nom_tf, "~% (TF)"
+            if dist < best_dist:
+                best_dist = dist
+                best_name = nom
+    # Seuil empirique : < 0.9 = bonne correspondance
+    if best_dist < 0.9:
+        confiance = max(0, int((1 - best_dist / 0.9) * 100))
+        return best_name, f"{confiance}%"
     return None, None
 
-def charger_db_visages_tf():
-    if os.path.exists(FACES_DB_TF_FILE):
-        with open(FACES_DB_TF_FILE, "rb") as f:
-            return pickle.load(f)
-    return {}
-
-def sauvegarder_db_visages_tf(db):
-    with open(FACES_DB_TF_FILE, "wb") as f:
-        pickle.dump(db, f)
-
-def get_embedding_tf_face(pil_image):
-    """Embedding facial MobileNetV2 TF (1280-dim), d├®tection visage via MTCNN."""
-    if _tf_extractor is None:
-        return None
-    try:
-        face_tensor = mtcnn_model(pil_image)
-        if face_tensor is None:
-            return None
-        face_np = ((face_tensor.permute(1, 2, 0).numpy() * 0.5 + 0.5) * 255).clip(0, 255).astype(np.uint8)
-        face_pil = Image.fromarray(face_np).resize((224, 224))
-        img_arr  = np.expand_dims(np.array(face_pil, dtype=np.float32), axis=0)
-        img_arr  = _tf_ext_prep(img_arr)
-        emb      = _tf_extractor.predict(img_arr, verbose=0)[0]
-        emb      = emb / (np.linalg.norm(emb) + 1e-8)
-        return emb
-    except Exception:
-        return None
-
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-# JEU 007 ÔÇô RECONNAISSANCE DE GESTES
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-GESTURES_DB_FILE    = "gestures_db.pkl"
-GESTURES_DB_TF_FILE = "gestures_db_tf.pkl"
-GESTURES_NB_MIN     = 3  # photos minimum par geste pour jouer
+# ─────────────────────────────────────────────
+# JEU 007 – RECONNAISSANCE DE GESTES
+# ─────────────────────────────────────────────
+GESTURES_DB_FILE = "gestures_db.pkl"
+GESTURES_NB_MIN  = 3  # photos minimum par geste pour jouer
 
 GESTURES_CONFIG = {
     "recharger": {
-        "emoji": "­ƒñÖ", "label": "Recharger",
-        "desc": "2 doigts point├®s ├á c├┤t├® de la t├¬te (tempe)",
+        "emoji": "🤙", "label": "Recharger",
+        "desc": "2 doigts pointés à côté de la tête (tempe)",
         "couleur": "#1a73e8",
     },
     "tirer": {
-        "emoji": "­ƒö½", "label": "Tirer",
-        "desc": "Main en forme de pistolet, doigt point├®",
+        "emoji": "🔫", "label": "Tirer",
+        "desc": "Main en forme de pistolet, doigt pointé",
         "couleur": "#e8341a",
     },
     "proteger": {
-        "emoji": "­ƒøí´©Å", "label": "Se prot├®ger",
-        "desc": "Bras crois├®s devant toi en bouclier",
+        "emoji": "🛡️", "label": "Se protéger",
+        "desc": "Bras croisés devant toi en bouclier",
         "couleur": "#2e7d32",
     },
 }
 
-# R├¿gles du duel :
+# Règles du duel :
 # Tirer > Recharger  (si tu as des balles)
-# Prot├®ger bloque Tirer
-# Recharger + Se prot├®ger = neutre
+# Protéger bloque Tirer
+# Recharger + Se protéger = neutre
 JEU007_VIES_MAX   = 3
 JEU007_BALLES_MAX = 3
 
@@ -253,123 +159,70 @@ def sauvegarder_db_gestes(db):
         pickle.dump(db, f)
 
 def get_gesture_embedding(pil_image):
-    """Extrait un embedding ViT 768-dim normalis├® depuis le mod├¿le d├®j├á charg├®."""
+    """Extrait un embedding ViT 768-dim normalisé depuis le modèle déjà chargé."""
     try:
-        # R├®utilise le processeur et le mod├¿le du pipeline classifier
+        # Réutilise le processeur et le modèle du pipeline classifier
         proc = getattr(classifier, "image_processor", None) or classifier.feature_extractor
         inputs = proc(images=pil_image, return_tensors="pt")
         with torch.no_grad():
             outputs = classifier.model(**inputs, output_hidden_states=True)
-        # CLS token du dernier bloc Transformer = repr├®sentation globale
+        # CLS token du dernier bloc Transformer = représentation globale
         emb = outputs.hidden_states[-1][:, 0, :].squeeze().numpy()
-        # Normalise sur la sph├¿re unit├® pour utiliser la distance L2 comme cosine
+        # Normalise sur la sphère unité pour utiliser la distance L2 comme cosine
         emb = emb / (np.linalg.norm(emb) + 1e-8)
         return emb  # 768 dims
     except Exception:
         return None
 
 def enregistrer_geste(pil_image, geste_key):
-    """Ajoute une photo d'exemple pour un geste (ViT + TF MobileNetV2)."""
+    """Ajoute une photo d'exemple pour un geste."""
     emb = get_gesture_embedding(pil_image)
     if emb is None:
-        return False, "ÔÜá´©Å Impossible d'analyser l'image."
+        return False, "⚠️ Impossible d'analyser l'image."
     db = charger_db_gestes()
     if geste_key not in db:
         db[geste_key] = []
     db[geste_key].append(emb)
     sauvegarder_db_gestes(db)
-    # TF MobileNetV2 embedding
-    emb_tf = get_gesture_embedding_tf(pil_image)
-    if emb_tf is not None:
-        db_tf = charger_db_gestes_tf()
-        if geste_key not in db_tf:
-            db_tf[geste_key] = []
-        db_tf[geste_key].append(emb_tf)
-        sauvegarder_db_gestes_tf(db_tf)
     nb = len(db[geste_key])
     cfg = GESTURES_CONFIG[geste_key]
-    return True, f"Ô£à Geste **{cfg['label']}** enregistr├® ! ({nb} photo(s))"
+    return True, f"✅ Geste **{cfg['label']}** enregistré ! ({nb} photo(s))"
 
 def reconnaitre_geste(pil_image):
-    """Identifie le geste via vote ViT + TF MobileNetV2."""
+    """Identifie le geste. Retourne (geste_key, confiance_%) ou (None, None)."""
     db = charger_db_gestes()
     if not db:
         return None, None
     emb = get_gesture_embedding(pil_image)
     if emb is None:
         return None, None
-    # ÔöÇÔöÇ ViT ÔöÇÔöÇ
-    best_key_vit, best_dist_vit = None, float("inf")
+    best_key, best_dist = None, float("inf")
     for key, embeddings in db.items():
         for known_emb in embeddings:
             dist = float(np.linalg.norm(emb - known_emb))
-            if dist < best_dist_vit:
-                best_dist_vit = dist
-                best_key_vit  = key
-    geste_vit = best_key_vit if best_dist_vit < 0.55 else None
-    # ÔöÇÔöÇ TF MobileNetV2 ÔöÇÔöÇ
-    geste_tf = None
-    db_tf = charger_db_gestes_tf()
-    if db_tf:
-        emb_tf = get_gesture_embedding_tf(pil_image)
-        if emb_tf is not None:
-            best_key_tf, best_dist_tf = None, float("inf")
-            for key, embeddings in db_tf.items():
-                for known_emb in embeddings:
-                    dist = float(np.linalg.norm(emb_tf - known_emb))
-                    if dist < best_dist_tf:
-                        best_dist_tf = dist
-                        best_key_tf  = key
-            geste_tf = best_key_tf if best_dist_tf < 0.6 else None
-    # ÔöÇÔöÇ Vote ÔöÇÔöÇ
-    if geste_vit and geste_tf:
-        if geste_vit == geste_tf:
-            conf = max(0, int((1 - best_dist_vit / 0.55) * 100))
-            return geste_vit, f"{conf}%"
-        return geste_vit, "??%"
-    elif geste_vit:
-        conf = max(0, int((1 - best_dist_vit / 0.55) * 100))
-        return geste_vit, f"{conf}%"
-    elif geste_tf:
-        return geste_tf, "??%"
-    if best_key_vit and len(db) == 3:
-        return best_key_vit, "??%"
+            if dist < best_dist:
+                best_dist = dist
+                best_key = key
+    # Sur embeddings normalisés : dist < 0.55 ≈ cosine > 0.85 = bonne correspondance
+    if best_dist < 0.55:
+        confiance = max(0, int((1 - best_dist / 0.55) * 100))
+        return best_key, f"{confiance}%"
+    # Si distance élevée mais qu'on a tous les gestes, prend le plus proche quand même
+    # (avec faible confiance)
+    if best_key and len(db) == 3:
+        return best_key, "??%"
     return None, None
-
-def charger_db_gestes_tf():
-    if os.path.exists(GESTURES_DB_TF_FILE):
-        with open(GESTURES_DB_TF_FILE, "rb") as f:
-            return pickle.load(f)
-    return {}
-
-def sauvegarder_db_gestes_tf(db):
-    with open(GESTURES_DB_TF_FILE, "wb") as f:
-        pickle.dump(db, f)
-
-def get_gesture_embedding_tf(pil_image):
-    """Embedding de geste MobileNetV2 TF (1280-dim normalis├®)."""
-    if _tf_extractor is None:
-        return None
-    try:
-        img     = pil_image.resize((224, 224)).convert("RGB")
-        img_arr = np.expand_dims(np.array(img, dtype=np.float32), axis=0)
-        img_arr = _tf_ext_prep(img_arr)
-        emb     = _tf_extractor.predict(img_arr, verbose=0)[0]
-        emb     = emb / (np.linalg.norm(emb) + 1e-8)
-        return emb
-    except Exception:
-        return None
 
 
 def reconnaitre_geste_vote(frames: list):
     """
-    Vote majoritaire sur plusieurs frames pour une d├®tection plus robuste.
-    Prend jusqu'├á 9 frames r├®parties uniform├®ment dans la liste fournie,
-    classifie chacune, et retourne le geste le plus vot├® avec un r├®sum├®.
+    Vote majoritaire sur plusieurs frames pour une détection plus robuste.
+    Prend jusqu'à 9 frames réparties uniformément dans la liste fournie,
+    classifie chacune, et retourne le geste le plus voté avec un résumé.
     """
     if not frames:
         return None, "aucune frame"
-    # ├ëchantillonnage uniforme : max 9 frames
+    # Échantillonnage uniforme : max 9 frames
     step     = max(1, len(frames) // 9)
     samples  = list(frames)[::step][:9]
     votes    = {}
@@ -378,13 +231,13 @@ def reconnaitre_geste_vote(frames: list):
         if g:
             votes[g] = votes.get(g, 0) + 1
     if not votes:
-        return None, "non reconnu ÔÜá´©Å"
+        return None, "non reconnu ⚠️"
     geste_final = max(votes, key=votes.get)
     n_vote      = votes[geste_final]
     n_total     = len(samples)
-    return geste_final, f"{n_vote}/{n_total} frames Ô£ô"
+    return geste_final, f"{n_vote}/{n_total} frames ✓"
 
-# ÔöÇÔöÇ Q-LEARNING 007 ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ── Q-LEARNING 007 ──────────────────────────────────────────
 Q007_FILE    = "q_007.pkl"
 Q007_LR      = 0.3    # learning rate
 Q007_GAMMA   = 0.85   # discount
@@ -402,7 +255,7 @@ def sauvegarder_qtable(qt):
         pickle.dump(qt, f)
 
 def etat_007(j_balles, ia_balles, j_vies, ia_vies):
-    """Tuple discret repr├®sentant l'├®tat courant."""
+    """Tuple discret représentant l'état courant."""
     return (
         min(j_balles,  JEU007_BALLES_MAX),
         min(ia_balles, JEU007_BALLES_MAX),
@@ -419,14 +272,14 @@ def ia_choisit_geste(ia_balles, ia_vies, joueur_vies, state=None, qtable=None):
         if not can_shoot:
             q_vals[1] = -9999  # bloquer "tirer" si pas de balles
         return GESTES_KEYS[int(np.argmax(q_vals))]
-    # Exploration al├®atoire
+    # Exploration aléatoire
     choices = ["recharger", "proteger"]
     if can_shoot:
-        choices += ["tirer", "tirer"]  # l├®g├¿re pr├®f├®rence tirer
+        choices += ["tirer", "tirer"]  # légère préférence tirer
     return random.choice(choices)
 
 def ia_apprendre(qtable, state, action_idx, reward, next_state):
-    """Mise ├á jour Bellman de la Q-table."""
+    """Mise à jour Bellman de la Q-table."""
     if state not in qtable:
         qtable[state] = np.zeros(3)
     if next_state not in qtable:
@@ -440,41 +293,41 @@ def ia_apprendre(qtable, state, action_idx, reward, next_state):
 def calculer_reward_ia(ia_geste, j_geste, ia_balles_avant, j_balles_avant,
                         ia_touche, j_touche, j_vies_new, ia_vies_new):
     """
-    ia_touche : l'IA a ├®t├® touch├®e par le joueur (mauvais pour l'IA).
-    j_touche  : le joueur a ├®t├® touch├® par l'IA (bon pour l'IA).
+    ia_touche : l'IA a été touchée par le joueur (mauvais pour l'IA).
+    j_touche  : le joueur a été touché par l'IA (bon pour l'IA).
     """
     r = 0
 
-    # ÔöÇ Combat ÔöÇ
-    if j_touche:   r += 25   # toucher l'adversaire : priorit├® max
-    if ia_touche:  r -= 25   # se faire toucher : sym├®trique
+    # ─ Combat ─
+    if j_touche:   r += 25   # toucher l'adversaire : priorité max
+    if ia_touche:  r -= 25   # se faire toucher : symétrique
 
-    # ÔöÇ Tirer (initiative offensive) ÔöÇ
+    # ─ Tirer (initiative offensive) ─
     if ia_geste == "tirer" and ia_balles_avant > 0:
         r += 2   # petit bonus : tirer est une action courageuse
 
-    # ÔöÇ Tour compl├¿tement inutile ÔöÇ
+    # ─ Tour complètement inutile ─
     if not j_touche and not ia_touche:
-        r -= 3  # chaque tour sans d├®cision co├╗te
+        r -= 3  # chaque tour sans décision coûte
 
-    # ÔöÇ Protection ÔöÇ
+    # ─ Protection ─
     if j_geste == "tirer" and j_balles_avant > 0 and ia_geste == "proteger":
-        r += 12  # bloquer un vrai tir : bien r├®compens├®
+        r += 12  # bloquer un vrai tir : bien récompensé
     elif ia_geste == "proteger":
-        r -= 8   # se prot├®ger sans raison : tour perdu, punit fortement
+        r -= 8   # se protéger sans raison : tour perdu, punit fortement
 
-    # ÔöÇ Gestion munitions ÔöÇ
+    # ─ Gestion munitions ─
     if ia_geste == "recharger":
         if ia_balles_avant >= JEU007_BALLES_MAX:
-            r -= 14  # recharger quand d├®j├á plein : tr├¿s inutile
+            r -= 14  # recharger quand déjà plein : très inutile
         else:
             r += 3   # recharger quand en manque : utile
 
-    # ÔöÇ Tirer ├á vide ÔöÇ
+    # ─ Tirer à vide ─
     if ia_geste == "tirer" and ia_balles_avant == 0:
         r -= 8
 
-    # ÔöÇ Fin de partie ÔöÇ
+    # ─ Fin de partie ─
     if ia_vies_new <= 0:  r -= 40
     if j_vies_new  <= 0:  r += 40
     return r
@@ -482,13 +335,13 @@ def calculer_reward_ia(ia_geste, j_geste, ia_balles_avant, j_balles_avant,
 
 def s_entrainer_007(nb_parties: int = None, duree_s: float = None):
     """
-    Entra├«ne le bot par auto-jeu ASYM├ëTRIQUE pour ├®viter la convergence vers les nuls.
-    Alterne 3 modes de match ├á chaque partie :
+    Entraîne le bot par auto-jeu ASYMÉTRIQUE pour éviter la convergence vers les nuls.
+    Alterne 3 modes de match à chaque partie :
       - QvQ   (40%) : les deux agents exploitent la Q-table
-      - QvRand(35%) : agent Q affronte un opposant purement al├®atoire
-      - QvAgro(25%) : agent Q affronte un opposant qui tire d├¿s qu'il a des balles
-    Cela force le bot ├á apprendre contre des strat├®gies impr├®visibles/agressives
-    plut├┤t que de converger vers un ├®quilibre d├®fensif sym├®trique.
+      - QvRand(35%) : agent Q affronte un opposant purement aléatoire
+      - QvAgro(25%) : agent Q affronte un opposant qui tire dès qu'il a des balles
+    Cela force le bot à apprendre contre des stratégies imprévisibles/agressives
+    plutôt que de converger vers un équilibre défensif symétrique.
     """
     if nb_parties is None and duree_s is None:
         nb_parties = 500
@@ -513,7 +366,7 @@ def s_entrainer_007(nb_parties: int = None, duree_s: float = None):
         if duree_s is not None and (time.time() - t_debut) >= duree_s:
             break
 
-        # S├®lection du mode : 40% QvQ / 35% QvRand / 25% QvAgro
+        # Sélection du mode : 40% QvQ / 35% QvRand / 25% QvAgro
         r_mod = partie_idx % 20
         if   r_mod < 8:   mode = "QvQ"
         elif r_mod < 15:  mode = "QvRand"
@@ -560,7 +413,7 @@ def s_entrainer_007(nb_parties: int = None, duree_s: float = None):
             stats["defaites"] += 1
         else:
             stats["nuls"] += 1
-            # P├®nalit├® nul plus forte
+            # Pénalité nul plus forte
             s_ia_fin = etat_007(jb, ib, jv, iv)
             qt = ia_apprendre(qt, s_ia_fin, GESTES_KEYS.index(ig), -20, s_ia_fin)
             if mode == "QvQ":
@@ -574,68 +427,68 @@ def s_entrainer_007(nb_parties: int = None, duree_s: float = None):
     return qt, stats
 
 def resoudre_duel(j_geste, ia_geste, j_balles, ia_balles, j_vies, ia_vies):
-    """Applique les r├¿gles 007 et retourne le nouvel ├®tat + messages."""
+    """Applique les règles 007 et retourne le nouvel état + messages."""
     msgs = []
     j_touche  = False
     ia_touche = False
 
-    # ÔöÇÔöÇ Le joueur tire ÔöÇÔöÇ
+    # ── Le joueur tire ──
     if j_geste == "tirer":
         if j_balles > 0:
             j_balles -= 1
             if ia_geste != "proteger":
                 ia_vies -= 1
                 ia_touche = True
-                msgs.append("­ƒö½ **Tu as tir├®** ÔåÆ IA **touch├®e** ! (-1 vie)")
+                msgs.append("🔫 **Tu as tiré** → IA **touchée** ! (-1 vie)")
             else:
-                msgs.append("­ƒö½ **Tu as tir├®** ÔåÆ IA s'est **prot├®g├®e**. Rat├® !")
+                msgs.append("🔫 **Tu as tiré** → IA s'est **protégée**. Raté !")
         else:
-            msgs.append("ÔØî **Tu as tir├®** mais tu n'as plus de balles !")
+            msgs.append("❌ **Tu as tiré** mais tu n'as plus de balles !")
     elif j_geste == "recharger":
         j_balles = min(JEU007_BALLES_MAX, j_balles + 1)
-        msgs.append(f"­ƒñÖ **Tu recharges** ÔåÆ {j_balles} balle(s)")
+        msgs.append(f"🤙 **Tu recharges** → {j_balles} balle(s)")
     elif j_geste == "proteger":
-        msgs.append("­ƒøí´©Å **Tu te prot├¿ges**")
+        msgs.append("🛡️ **Tu te protèges**")
 
-    # ÔöÇÔöÇ L'IA tire ÔöÇÔöÇ
+    # ── L'IA tire ──
     if ia_geste == "tirer":
         if ia_balles > 0:
             ia_balles -= 1
             if j_geste != "proteger":
                 j_vies -= 1
                 j_touche = True
-                msgs.append("­ƒÆÇ **L'IA a tir├®** ÔåÆ Tu es **touch├®(e)** ! (-1 vie)")
+                msgs.append("💀 **L'IA a tiré** → Tu es **touché(e)** ! (-1 vie)")
             else:
-                msgs.append("­ƒøí´©Å **L'IA a tir├®** ÔåÆ Tu t'es **prot├®g├®(e)** ! Bloqu├®.")
+                msgs.append("🛡️ **L'IA a tiré** → Tu t'es **protégé(e)** ! Bloqué.")
         else:
-            msgs.append("ÔØî L'IA a tir├® sans balles !")
+            msgs.append("❌ L'IA a tiré sans balles !")
     elif ia_geste == "recharger":
         ia_balles = min(JEU007_BALLES_MAX, ia_balles + 1)
-        msgs.append(f"­ƒñÖ **L'IA recharge** ÔåÆ {ia_balles} balle(s)")
+        msgs.append(f"🤙 **L'IA recharge** → {ia_balles} balle(s)")
     elif ia_geste == "proteger":
-        msgs.append("­ƒøí´©Å **L'IA se prot├¿ge**")
+        msgs.append("🛡️ **L'IA se protège**")
 
     return j_balles, ia_balles, j_vies, ia_vies, msgs, j_touche, ia_touche
 
 
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-# MAPPING : labels ImageNet ÔåÆ 5 cat├®gories TP
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
+# MAPPING : labels ImageNet → 5 catégories TP
+# ─────────────────────────────────────────────
 CATEGORY_MAPPER = {
-    # ÔöÇÔöÇ V├®hicules EN PREMIER (priorit├® haute pour ├®viter les faux positifs) ÔöÇÔöÇ
-    "sports car": "V├®hicule", "sport car": "V├®hicule",
-    "race car": "V├®hicule", "racing car": "V├®hicule",
-    "car": "V├®hicule", "truck": "V├®hicule", "bus": "V├®hicule",
-    "bicycle": "V├®hicule", "motorcycle": "V├®hicule", "airplane": "V├®hicule",
-    "boat": "V├®hicule", "train": "V├®hicule", "ambulance": "V├®hicule",
-    "taxi": "V├®hicule", "van": "V├®hicule", "tractor": "V├®hicule",
-    "helicopter": "V├®hicule", "spacecraft": "V├®hicule", "submarine": "V├®hicule",
-    "jeep": "V├®hicule", "minivan": "V├®hicule", "convertible": "V├®hicule",
-    "racer": "V├®hicule", "go-kart": "V├®hicule", "streetcar": "V├®hicule",
-    "scooter": "V├®hicule", "limousine": "V├®hicule", "fire engine": "V├®hicule",
-    "police van": "V├®hicule", "cab": "V├®hicule", "minibus": "V├®hicule",
+    # ── Véhicules EN PREMIER (priorité haute pour éviter les faux positifs) ──
+    "sports car": "Véhicule", "sport car": "Véhicule",
+    "race car": "Véhicule", "racing car": "Véhicule",
+    "car": "Véhicule", "truck": "Véhicule", "bus": "Véhicule",
+    "bicycle": "Véhicule", "motorcycle": "Véhicule", "airplane": "Véhicule",
+    "boat": "Véhicule", "train": "Véhicule", "ambulance": "Véhicule",
+    "taxi": "Véhicule", "van": "Véhicule", "tractor": "Véhicule",
+    "helicopter": "Véhicule", "spacecraft": "Véhicule", "submarine": "Véhicule",
+    "jeep": "Véhicule", "minivan": "Véhicule", "convertible": "Véhicule",
+    "racer": "Véhicule", "go-kart": "Véhicule", "streetcar": "Véhicule",
+    "scooter": "Véhicule", "limousine": "Véhicule", "fire engine": "Véhicule",
+    "police van": "Véhicule", "cab": "Véhicule", "minibus": "Véhicule",
 
-    # ÔöÇÔöÇ Personnages fictifs ÔöÇÔöÇ
+    # ── Personnages fictifs ──
     "puppet": "Personnage Fictif",
     "teddy": "Personnage Fictif",
     "teddy bear": "Personnage Fictif",
@@ -643,11 +496,11 @@ CATEGORY_MAPPER = {
     "figurine": "Personnage Fictif", "action figure": "Personnage Fictif",
     "costume": "Personnage Fictif", "cloak": "Personnage Fictif",
     "robe": "Personnage Fictif",
-    # BD, manga, super-h├®ros : retir├®s de la blacklist pour ├¬tre captur├®s ici
+    # BD, manga, super-héros : retirés de la blacklist pour être capturés ici
     "comic book": "Personnage Fictif", "comic strip": "Personnage Fictif",
     "mask": "Personnage Fictif", "cartoon": "Personnage Fictif",
 
-    # ÔöÇÔöÇ Animaux ÔöÇÔöÇ
+    # ── Animaux ──
     "dog": "Animal", "cat": "Animal", "bird": "Animal", "fish": "Animal",
     "horse": "Animal", "cow": "Animal", "elephant": "Animal", "bear": "Animal",
     "zebra": "Animal", "giraffe": "Animal", "lion": "Animal", "tiger": "Animal",
@@ -657,7 +510,7 @@ CATEGORY_MAPPER = {
     "whale": "Animal", "bee": "Animal", "butterfly": "Animal", "spider": "Animal",
     "crab": "Animal", "lobster": "Animal",
 
-    # ÔöÇÔöÇ Plantes ÔöÇÔöÇ
+    # ── Plantes ──
     "flower": "Plante", "rose": "Plante", "daisy": "Plante", "tulip": "Plante",
     "sunflower": "Plante", "dandelion": "Plante", "tree": "Plante",
     "mushroom": "Plante", "cactus": "Plante", "fern": "Plante", "moss": "Plante",
@@ -665,7 +518,7 @@ CATEGORY_MAPPER = {
     "apple": "Plante", "orange": "Plante", "strawberry": "Plante",
     "broccoli": "Plante", "carrot": "Plante",
 
-    # ÔöÇÔöÇ Humains EN DERNIER (v├¬tements, accessoires ÔåÆ visibles sur une personne) ÔöÇÔöÇ
+    # ── Humains EN DERNIER (vêtements, accessoires → visibles sur une personne) ──
     "suit": "Humain", "bow tie": "Humain", "trench coat": "Humain",
     "jersey": "Humain", "lab coat": "Humain", "groom": "Humain",
     "face powder": "Humain", "lipstick": "Humain", "swimming cap": "Humain",
@@ -681,7 +534,7 @@ CATEGORY_MAPPER = {
     "cardigan": "Humain", "jean": "Humain", "mitten": "Humain",
     "sunglasses": "Humain", "glasses": "Humain",
     "mortarboard": "Humain", "cowboy hat": "Humain", "bonnet": "Humain",
-    # Labels ViT suppl├®mentaires fr├®quents pour une personne
+    # Labels ViT supplémentaires fréquents pour une personne
     "polo shirt": "Humain", "dress shirt": "Humain", "jacket": "Humain",
     "hoodie": "Humain", "pullover": "Humain", "turtleneck": "Humain",
     "fur coat": "Humain", "overcoat": "Humain", "raincoat": "Humain",
@@ -694,7 +547,7 @@ CATEGORY_MAPPER = {
     "neck brace": "Humain",
     "bow": "Humain", "tie": "Humain", "suspenders": "Humain",
 
-    # ÔöÇÔöÇ Nourriture ÔöÇÔöÇ
+    # ── Nourriture ──
     "pizza": "Nourriture", "burger": "Nourriture", "cheeseburger": "Nourriture",
     "hot dog": "Nourriture", "sandwich": "Nourriture", "burrito": "Nourriture",
     "sushi": "Nourriture", "guacamole": "Nourriture", "pretzel": "Nourriture",
@@ -707,7 +560,7 @@ CATEGORY_MAPPER = {
     "lemon": "Nourriture", "fig": "Nourriture", "pomegranate": "Nourriture",
     "taco": "Nourriture", "french loaf": "Nourriture",
 
-    # ÔöÇÔöÇ Sport ÔöÇÔöÇ
+    # ── Sport ──
     "tennis racket": "Sport", "baseball bat": "Sport", "cricket bat": "Sport",
     "golf club": "Sport", "ski": "Sport", "snowboard": "Sport",
     "surfboard": "Sport", "skateboard": "Sport", "parachute": "Sport",
@@ -715,7 +568,7 @@ CATEGORY_MAPPER = {
     "swimming": "Sport", "balance beam": "Sport", "horizontal bar": "Sport",
     "ping-pong ball": "Sport", "boxing glove": "Sport",
 
-    # ÔöÇÔöÇ Objet du quotidien ÔöÇÔöÇ
+    # ── Objet du quotidien ──
     "bottle": "Objet", "wine bottle": "Objet", "beer bottle": "Objet",
     "water bottle": "Objet", "perfume": "Objet",
     "cup": "Objet", "coffee mug": "Objet", "teapot": "Objet",
@@ -735,7 +588,7 @@ CATEGORY_MAPPER = {
     "bucket": "Objet", "broom": "Objet", "toilet": "Objet",
     "bathtub": "Objet", "toaster": "Objet", "microwave": "Objet",
     "refrigerator": "Objet", "washing machine": "Objet",
-    # Objets du quotidien suppl├®mentaires
+    # Objets du quotidien supplémentaires
     "sock": "Objet", "stocking": "Objet",
     "toilet tissue": "Objet", "paper towel": "Objet", "toilet paper": "Objet",
     "toothbrush": "Objet", "toothpaste": "Objet",
@@ -747,9 +600,9 @@ CATEGORY_MAPPER = {
     "mousetrap": "Objet", "padlock": "Objet", "key": "Objet",
     "cellular telephone": "Objet", "television": "Objet",
     "headphone": "Objet", "earphone": "Objet",
-    # Note: jersey et running shoe sont d├®finis dans la section Humain ÔÇö ne pas red├®finir ici
+    # Note: jersey et running shoe sont définis dans la section Humain — ne pas redéfinir ici
 
-    # ÔöÇÔöÇ Nature / Paysage ÔöÇÔöÇ
+    # ── Nature / Paysage ──
     "mountain": "Nature", "volcano": "Nature", "valley": "Nature",
     "ocean": "Nature", "lake": "Nature", "river": "Nature",
     "waterfall": "Nature", "beach": "Nature", "desert": "Nature",
@@ -758,171 +611,171 @@ CATEGORY_MAPPER = {
     "ice berg": "Nature", "glacier": "Nature", "cave": "Nature",
 }
 
-# Ic├┤nes et messages de gamification par cat├®gorie
+# Icônes et messages de gamification par catégorie
 CATEGORY_CONFIG = {
-    "Humain":            {"emoji": "­ƒæñ", "message": "­ƒæñ Humain rep├®r├® ! Vous n'├¬tes pas seul..."},
-    "Personnage Fictif": {"emoji": "­ƒºÖ", "message": "­ƒÄ¼ Cr├®ature de l├®gende d├®tect├®e ! Sortez le popcorn !"},
-    "Animal":            {"emoji": "­ƒÉ¥", "message": "­ƒÉ¥ B├¬te sauvage rep├®r├®e ! Ne bougez plus..."},
-    "Plante":            {"emoji": "­ƒî┐", "message": "­ƒî┐ La nature s'invite ! Pensez ├á arroser."},
-    "V├®hicule":          {"emoji": "­ƒÜù", "message": "­ƒÜù Bolide en approche ! Attachez vos ceintures !"},
-    "Nourriture":        {"emoji": "­ƒìò", "message": "­ƒìò Repas d├®tect├® ! J'ai faim maintenant..."},
-    "Sport":             {"emoji": "­ƒÅå", "message": "­ƒÅå ├Ç vos marques, pr├¬ts, partez !"},
-    "Objet":             {"emoji": "­ƒôª", "message": "­ƒôª Objet du quotidien identifi├® !"},
-    "Nature":            {"emoji": "­ƒîì", "message": "­ƒîì Splendeur naturelle d├®tect├®e !"},
-    "Inconnu":           {"emoji": "ÔØô", "message": "­ƒñö L'IA ne reconna├«t pas de cat├®gorie connue.  \nCela peut ├¬tre une ┼ôuvre d'art, un paysage ou un objet non classifiable."},
+    "Humain":            {"emoji": "👤", "message": "👤 Humain repéré ! Vous n'êtes pas seul..."},
+    "Personnage Fictif": {"emoji": "🧙", "message": "🎬 Créature de légende détectée ! Sortez le popcorn !"},
+    "Animal":            {"emoji": "🐾", "message": "🐾 Bête sauvage repérée ! Ne bougez plus..."},
+    "Plante":            {"emoji": "🌿", "message": "🌿 La nature s'invite ! Pensez à arroser."},
+    "Véhicule":          {"emoji": "🚗", "message": "🚗 Bolide en approche ! Attachez vos ceintures !"},
+    "Nourriture":        {"emoji": "🍕", "message": "🍕 Repas détecté ! J'ai faim maintenant..."},
+    "Sport":             {"emoji": "🏆", "message": "🏆 À vos marques, prêts, partez !"},
+    "Objet":             {"emoji": "📦", "message": "📦 Objet du quotidien identifié !"},
+    "Nature":            {"emoji": "🌍", "message": "🌍 Splendeur naturelle détectée !"},
+    "Inconnu":           {"emoji": "❓", "message": "🤔 L'IA ne reconnaît pas de catégorie connue.  \nCela peut être une œuvre d'art, un paysage ou un objet non classifiable."},
 }
 
 # Labels ImageNet qui indiquent une image plate (peinture, affiche, livre...)
-# ÔåÆ forcer "Inconnu" directement, sans passer par le mapper
+# → forcer "Inconnu" directement, sans passer par le mapper
 BLACKLIST_FLAT_IMAGE = {
     "book jacket", "dust cover", "dust jacket", "dust wrapper",
     "jigsaw puzzle", "envelope", "packet",
     "menu", "web site", "screen", "monitor", "television",
     "poster", "album", "cd",
-    # Note: "comic book" retir├® ÔåÆ mappe vers Personnage Fictif
+    # Note: "comic book" retiré → mappe vers Personnage Fictif
 }
 
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-# D├ëFIS POUR LE JEU (chasse aux objets)
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-# keywords=None  ÔåÆ n'importe quel objet de la cat├®gorie
-# keywords=[...] ÔåÆ un label pr├®cis doit ├¬tre d├®tect├®
+# ─────────────────────────────────────────────
+# DÉFIS POUR LE JEU (chasse aux objets)
+# ─────────────────────────────────────────────
+# keywords=None  → n'importe quel objet de la catégorie
+# keywords=[...] → un label précis doit être détecté
 DEFIS_POOL = [
     {
-        "texte": "­ƒì¥ Trouve une BOUTEILLE !",
+        "texte": "🍾 Trouve une BOUTEILLE !",
         "categorie": "Objet", "keywords": ["bottle", "wine bottle", "beer bottle", "water bottle"],
-        "temps": 30, "points_max": 200, "emoji": "­ƒì¥",
+        "temps": 30, "points_max": 200, "emoji": "🍾",
         "conseil": "Cherche dans ta cuisine ou sur ton bureau !",
     },
     {
-        "texte": "­ƒÉÂ Trouve un ANIMAL !",
+        "texte": "🐶 Trouve un ANIMAL !",
         "categorie": "Animal", "keywords": None,
-        "temps": 25, "points_max": 250, "emoji": "­ƒÉÂ",
-        "conseil": "Un vrai animal, une peluche... sois cr├®atif !",
+        "temps": 25, "points_max": 250, "emoji": "🐶",
+        "conseil": "Un vrai animal, une peluche... sois créatif !",
     },
     {
-        "texte": "­ƒî▒ Trouve une PLANTE !",
+        "texte": "🌱 Trouve une PLANTE !",
         "categorie": "Plante", "keywords": None,
-        "temps": 30, "points_max": 200, "emoji": "­ƒî▒",
-        "conseil": "Une fleur, une plante d'int├®rieur, un arbre par la fen├¬tre !",
+        "temps": 30, "points_max": 200, "emoji": "🌱",
+        "conseil": "Une fleur, une plante d'intérieur, un arbre par la fenêtre !",
     },
     {
-        "texte": "­ƒìò Trouve de la NOURRITURE !",
+        "texte": "🍕 Trouve de la NOURRITURE !",
         "categorie": "Nourriture", "keywords": None,
-        "temps": 25, "points_max": 200, "emoji": "­ƒìò",
+        "temps": 25, "points_max": 200, "emoji": "🍕",
         "conseil": "Direction la cuisine ! Frigo, placards...",
     },
     {
-        "texte": "Ôÿò Trouve une TASSE ou un BOL !",
+        "texte": "☕ Trouve une TASSE ou un BOL !",
         "categorie": "Objet", "keywords": ["cup", "bowl", "coffee mug"],
-        "temps": 20, "points_max": 300, "emoji": "Ôÿò",
+        "temps": 20, "points_max": 300, "emoji": "☕",
         "conseil": "Sur ton bureau ? Dans la cuisine ?",
     },
     {
-        "texte": "­ƒæñ Montre un HUMAIN !",
+        "texte": "👤 Montre un HUMAIN !",
         "categorie": "Humain", "keywords": None,
-        "temps": 20, "points_max": 300, "emoji": "­ƒæñ",
+        "temps": 20, "points_max": 300, "emoji": "👤",
         "conseil": "Montre-toi, appelle quelqu'un, ou trouve une photo !",
     },
     {
-        "texte": "­ƒôÜ Trouve un LIVRE !",
+        "texte": "📚 Trouve un LIVRE !",
         "categorie": "Objet", "keywords": ["book"],
-        "temps": 25, "points_max": 200, "emoji": "­ƒôÜ",
-        "conseil": "Dans ta biblioth├¿que ou sur ta table !",
+        "temps": 25, "points_max": 200, "emoji": "📚",
+        "conseil": "Dans ta bibliothèque ou sur ta table !",
     },
     {
-        "texte": "Ô£é´©Å Trouve des CISEAUX !",
+        "texte": "✂️ Trouve des CISEAUX !",
         "categorie": "Objet", "keywords": ["scissors"],
-        "temps": 35, "points_max": 250, "emoji": "Ô£é´©Å",
+        "temps": 35, "points_max": 250, "emoji": "✂️",
         "conseil": "Tiroir de bureau, trousse scolaire...",
     },
     {
-        "texte": "­ƒÅå Trouve un OBJET DE SPORT !",
+        "texte": "🏆 Trouve un OBJET DE SPORT !",
         "categorie": "Sport", "keywords": None,
-        "temps": 35, "points_max": 250, "emoji": "­ƒÅå",
-        "conseil": "Raquette, ballon, halt├¿res... cherche bien !",
+        "temps": 35, "points_max": 250, "emoji": "🏆",
+        "conseil": "Raquette, ballon, haltères... cherche bien !",
     },
     {
-        "texte": "­ƒî© Trouve une FLEUR !",
+        "texte": "🌸 Trouve une FLEUR !",
         "categorie": "Plante", "keywords": ["flower", "rose", "daisy", "tulip", "sunflower", "dandelion"],
-        "temps": 30, "points_max": "200", "emoji": "­ƒî©",
+        "temps": 30, "points_max": "200", "emoji": "🌸",
         "conseil": "Dehors, sur une photo, ou dans un vase !",
     },
     {
-        "texte": "­ƒÆ╗ Trouve un ORDINATEUR ou un T├ëL├ëPHONE !",
+        "texte": "💻 Trouve un ORDINATEUR ou un TÉLÉPHONE !",
         "categorie": "Objet", "keywords": ["laptop", "keyboard", "phone", "mouse"],
-        "temps": 15, "points_max": 350, "emoji": "­ƒÆ╗",
-        "conseil": "Facile... tu dois en avoir un pr├¿s de toi !",
+        "temps": 15, "points_max": 350, "emoji": "💻",
+        "conseil": "Facile... tu dois en avoir un près de toi !",
     },
     {
-        "texte": "­ƒöæ Trouve des CL├ëS ou un SAC !",
+        "texte": "🔑 Trouve des CLÉS ou un SAC !",
         "categorie": "Objet", "keywords": ["backpack", "handbag", "suitcase", "wallet"],
-        "temps": 30, "points_max": 250, "emoji": "­ƒöæ",
-        "conseil": "Pr├¿s de l'entr├®e ou sur ton bureau !",
+        "temps": 30, "points_max": 250, "emoji": "🔑",
+        "conseil": "Près de l'entrée ou sur ton bureau !",
     },
     {
-        "texte": "­ƒôÀ Trouve une LAMPE ou une HORLOGE !",
+        "texte": "📷 Trouve une LAMPE ou une HORLOGE !",
         "categorie": "Objet", "keywords": ["lamp", "clock"],
-        "temps": 25, "points_max": 250, "emoji": "­ƒôÀ",
-        "conseil": "Regarde autour de toi dans la pi├¿ce !",
+        "temps": 25, "points_max": 250, "emoji": "📷",
+        "conseil": "Regarde autour de toi dans la pièce !",
     },
     {
-        "texte": "­ƒº╗ Trouve du PAPIER TOILETTE !",
+        "texte": "🧻 Trouve du PAPIER TOILETTE !",
         "categorie": "Objet", "keywords": ["toilet tissue", "paper towel", "toilet paper"],
-        "temps": 25, "points_max": 350, "emoji": "­ƒº╗",
-        "conseil": "Check les toilettes ou la r├®serve !",
+        "temps": 25, "points_max": 350, "emoji": "🧻",
+        "conseil": "Check les toilettes ou la réserve !",
     },
     {
-        "texte": "­ƒºª Trouve une CHAUSSETTE !",
+        "texte": "🧦 Trouve une CHAUSSETTE !",
         "categorie": "Objet", "keywords": ["sock", "stocking"],
-        "temps": 30, "points_max": 300, "emoji": "­ƒºª",
+        "temps": 30, "points_max": 300, "emoji": "🧦",
         "conseil": "Dans ta chambre, sur le sol ou dans un tiroir !",
     },
     {
-        "texte": "­ƒº¥a Trouve une BROSSE ├Ç DENTS !",
+        "texte": "🧾a Trouve une BROSSE À DENTS !",
         "categorie": "Objet", "keywords": ["toothbrush"],
-        "temps": 30, "points_max": 300, "emoji": "­ƒº¥a",
+        "temps": 30, "points_max": 300, "emoji": "🧾a",
         "conseil": "Direction la salle de bain !",
     },
     {
-        "texte": "­ƒô║ Trouve une T├ëL├ëCOMMANDE !",
+        "texte": "📺 Trouve une TÉLÉCOMMANDE !",
         "categorie": "Objet", "keywords": ["remote control", "television"],
-        "temps": 25, "points_max": 300, "emoji": "­ƒô║",
-        "conseil": "Sur le canap├® ou pr├¿s de la t├®l├® !",
+        "temps": 25, "points_max": 300, "emoji": "📺",
+        "conseil": "Sur le canapé ou près de la télé !",
     },
     {
-        "texte": "Ô£Å´©Å Trouve un STYLO ou un CRAYON !",
+        "texte": "✏️ Trouve un STYLO ou un CRAYON !",
         "categorie": "Objet", "keywords": ["ballpoint pen", "pencil", "crayon"],
-        "temps": 20, "points_max": 250, "emoji": "Ô£Å´©Å",
+        "temps": 20, "points_max": 250, "emoji": "✏️",
         "conseil": "Sur ton bureau ou dans ta trousse !",
     },
     {
-        "texte": "­ƒøÅ´©Å Trouve un COUSSIN ou un OREILLER !",
+        "texte": "🛏️ Trouve un COUSSIN ou un OREILLER !",
         "categorie": "Objet", "keywords": ["pillow", "cushion"],
-        "temps": 25, "points_max": 250, "emoji": "­ƒøÅ´©Å",
-        "conseil": "Sur le canap├® ou dans ta chambre !",
+        "temps": 25, "points_max": 250, "emoji": "🛏️",
+        "conseil": "Sur le canapé ou dans ta chambre !",
     },
 ]
 # S'assurer que points_max est toujours un int
 for _d in DEFIS_POOL:
     _d["points_max"] = int(_d["points_max"])
 
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
 # FONCTION D'ANALYSE
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
 def analyser_image(pil_image):
-    # R├®cup├¿re le top-5 pour maximiser les chances de trouver une cat├®gorie
+    # Récupère le top-5 pour maximiser les chances de trouver une catégorie
     resultats = classifier(pil_image, top_k=5)
     meilleur = resultats[0]
     label_brut = meilleur["label"].lower()
     score_raw = meilleur["score"]
 
-    # Parcourt le top-5 pour trouver la premi├¿re cat├®gorie connue
-    # On utilise \b (word boundary) pour ├®viter les faux positifs
+    # Parcourt le top-5 pour trouver la première catégorie connue
+    # On utilise \b (word boundary) pour éviter les faux positifs
     # ex: "car" ne doit PAS matcher "ocarina"
     categorie = "Inconnu"
     label_reconnu = label_brut
-    score_reconnu = score_raw  # score du label ayant d├®clench├® la cat├®gorie
+    score_reconnu = score_raw  # score du label ayant déclenché la catégorie
     for res in resultats:
         lbl = res["label"].lower()
         # Si le label est dans la liste noire "image plate", on force Inconnu
@@ -940,12 +793,12 @@ def analyser_image(pil_image):
 
     score_pct = f"{score_reconnu * 100:.2f}%"
 
-    # ­ƒÑÜ Easter egg : Baby Yoda (figurine verte avec cloak/ocarina = Baby Yoda tr├¿s probable)
+    # 🥚 Easter egg : Baby Yoda (figurine verte avec cloak/ocarina = Baby Yoda très probable)
     easter_egg = None
     baby_yoda_signals = ["yoda", "puppet", "teddy", "ocarina", "cloak", "robe"]
     if any(m in label_brut for m in baby_yoda_signals) or \
        any(m in label_reconnu for m in baby_yoda_signals):
-        easter_egg = "­ƒƒó BABY YODA D├ëTECT├ë ! La Force est avec vous !"
+        easter_egg = "🟢 BABY YODA DÉTECTÉ ! La Force est avec vous !"
 
     return {
         "label_brut": label_brut,
@@ -956,76 +809,34 @@ def analyser_image(pil_image):
         "easter_egg": easter_egg,
     }
 
-
-def analyser_image_tf(pil_image):
-    """Analyse une image avec MobileNetV2 (TensorFlow/Keras) et retourne la cat├®gorie TP."""
-    if _tf_model is None:
-        return None
-    import numpy as np
-    img        = pil_image.resize((224, 224)).convert("RGB")
-    img_array  = np.expand_dims(np.array(img, dtype=np.float32), axis=0)
-    img_array  = _tf_preprocess(img_array)
-    preds      = _tf_model.predict(img_array, verbose=0)
-    top5       = _tf_decode(preds, top=5)[0]   # [(id, nom, score), ...]
-
-    label_brut = top5[0][1].lower().replace("_", " ")
-    categorie     = "Inconnu"
-    label_reconnu = label_brut
-    score_reconnu = float(top5[0][2])
-
-    for _, class_name, score in top5:
-        lbl = class_name.lower().replace("_", " ")
-        if any(bl in lbl for bl in BLACKLIST_FLAT_IMAGE):
-            continue
-        for mot_cle, cat in CATEGORY_MAPPER.items():
-            pattern = r'\b' + re.escape(mot_cle) + r'\b'
-            if re.search(pattern, lbl):
-                categorie     = cat
-                label_reconnu = lbl
-                score_reconnu = float(score)
-                break
-        if categorie != "Inconnu":
-            break
-
-    return {
-        "label_brut":     label_brut,
-        "label_reconnu":  label_reconnu,
-        "score_pct":      f"{score_reconnu * 100:.2f}%",
-        "score_raw":      score_reconnu,
-        "categorie":      categorie,
-    }
-
-
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-# PROCESSEUR VID├ëO TEMPS R├ëEL (Webcam)
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-# Dictionnaire partag├® entre le thread principal et VideoProcessor pour l'overlay 007
+# ─────────────────────────────────────────────
+# PROCESSEUR VIDÉO TEMPS RÉEL (Webcam)
+# ─────────────────────────────────────────────
+# Dictionnaire partagé entre le thread principal et VideoProcessor pour l'overlay 007
 _g007_overlay = {"active": False, "text": "", "color": (255, 200, 0)}
 
 
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
-        self.result    = None
-        self.result_tf = None
+        self.result = None
         self.frame_count = 0
         self.lock = threading.Lock()
-        self.last_frame_pil = None   # derni├¿re frame (pour d├®tection cam├®ra pr├¬te)
-        self.frame_buffer   = deque(maxlen=30)  # ~1s ├á 30fps pour vote multi-frames
+        self.last_frame_pil = None   # dernière frame (pour détection caméra prête)
+        self.frame_buffer   = deque(maxlen=30)  # ~1s à 30fps pour vote multi-frames
 
     def recv(self, frame):
         img_array = frame.to_ndarray(format="rgb24")
         self.frame_count += 1
 
         pil_current = Image.fromarray(img_array)
-        # Toujours stocker la derni├¿re frame et alimenter le buffer multi-frames
+        # Toujours stocker la dernière frame et alimenter le buffer multi-frames
         with self.lock:
             self.last_frame_pil = pil_current
             self.frame_buffer.append(pil_current)
 
-        # Analyse 1 frame sur 60 (~toutes les 2s ├á 30fps)
+        # Analyse 1 frame sur 60 (~toutes les 2s à 30fps)
         if self.frame_count % 60 == 0:
-            result    = analyser_image(pil_current)
-            result_tf = analyser_image_tf(pil_current)
+            result = analyser_image(pil_current)
             if result["categorie"] == "Humain":
                 nom_v, conf_v = reconnaitre_visage(pil_current)
                 result["nom_visage"] = nom_v
@@ -1034,10 +845,9 @@ class VideoProcessor(VideoProcessorBase):
                 result["nom_visage"] = None
                 result["conf_visage"] = None
             with self.lock:
-                self.result    = result
-                self.result_tf = result_tf
+                self.result = result
 
-        # ÔöÇÔöÇ Overlay r├®sultat cat├®gorie ÔöÇÔöÇ
+        # ── Overlay résultat catégorie ──
         with self.lock:
             current_result = self.result
 
@@ -1048,12 +858,12 @@ class VideoProcessor(VideoProcessorBase):
             h, w = img_array.shape[:2]
             draw.rectangle([(0, h - 65), (w, h)], fill=(0, 0, 0))
             display_name = current_result.get("nom_visage") or current_result["categorie"]
-            prefix = f"­ƒæï {display_name}" if current_result.get("nom_visage") else f"{cfg['emoji']}  {display_name}"
+            prefix = f"👋 {display_name}" if current_result.get("nom_visage") else f"{cfg['emoji']}  {display_name}"
             draw.text((12, h - 52), prefix, fill=(100, 255, 100) if current_result.get("nom_visage") else (255, 255, 255))
             draw.text((12, h - 28), f"Confiance : {current_result['score_pct']}  |  {current_result['label_reconnu']}", fill=(180, 180, 180))
             img_array = np.array(pil_draw)
 
-        # ÔöÇÔöÇ Overlay compte ├á rebours 007 ÔöÇÔöÇ
+        # ── Overlay compte à rebours 007 ──
         if _g007_overlay["active"] and _g007_overlay["text"]:
             pil_draw = Image.fromarray(img_array)
             draw = ImageDraw.Draw(pil_draw)
@@ -1065,7 +875,7 @@ class VideoProcessor(VideoProcessorBase):
                 font_big = ImageFont.truetype("arial.ttf", font_size)
             except Exception:
                 font_big = ImageFont.load_default()
-            # Ombre + texte centr├®
+            # Ombre + texte centré
             try:
                 bb = draw.textbbox((0, 0), txt, font=font_big)
                 tw, th = bb[2] - bb[0], bb[3] - bb[1]
@@ -1079,37 +889,37 @@ class VideoProcessor(VideoProcessorBase):
         return av.VideoFrame.from_ndarray(img_array, format="rgb24")
 
 
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+# ─────────────────────────────────────────────
 # INTERFACE PRINCIPALE
-# ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-st.title("­ƒöì VisionIA ÔÇô Reconnaissance d'Images")
-st.caption("D├®tection automatique : Humains ┬À Personnages Fictifs ┬À Animaux ┬À Plantes ┬À V├®hicules ┬À Nourriture ┬À Sport ┬À Objets ┬À Nature")
+# ─────────────────────────────────────────────
+st.title("🔍 VisionIA – Reconnaissance d'Images")
+st.caption("Détection automatique : Humains · Personnages Fictifs · Animaux · Plantes · Véhicules · Nourriture · Sport · Objets · Nature")
 st.markdown("---")
 
 tab_analyse, tab_jeu, tab_visages, tab_007 = st.tabs([
-    "­ƒöì Analyse d'image",
-    "­ƒÄ« Jeu de d├®tection (10 manches)",
-    "­ƒæÑ Reconnaissances de visages",
-    "­ƒö½ 007 Duel",
+    "🔍 Analyse d'image",
+    "🎮 Jeu de détection (10 manches)",
+    "👥 Reconnaissances de visages",
+    "🔫 007 Duel",
 ])
 
-# ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-# ONGLET 1 ÔÇô ANALYSE
-# ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+# ══════════════════════════════════════════════
+# ONGLET 1 – ANALYSE
+# ══════════════════════════════════════════════
 with tab_analyse:
-    # ÔöÇÔöÇ Deux colonnes principales : upload | r├®sultat ÔöÇÔöÇ
+    # ── Deux colonnes principales : upload | résultat ──
     zone_upload, zone_resultat = st.columns([1, 1], gap="large")
 
     with zone_upload:
-        st.subheader("­ƒô© Capture ou Upload")
-        mode = st.radio("Source de l'image :", ["­ƒôÀ Webcam (temps r├®el)", "­ƒôü Fichier"], horizontal=True)
+        st.subheader("📸 Capture ou Upload")
+        mode = st.radio("Source de l'image :", ["📷 Webcam (temps réel)", "📁 Fichier"], horizontal=True)
 
         image_source = None
         uploaded_file = None
         ctx = None
 
-        if mode == "­ƒôÀ Webcam (temps r├®el)":
-            st.caption("ÔÜí La cat├®gorie s'affiche sur la vid├®o. Cliquez START pour lancer.")
+        if mode == "📷 Webcam (temps réel)":
+            st.caption("⚡ La catégorie s'affiche sur la vidéo. Cliquez START pour lancer.")
             ctx = webrtc_streamer(
                 key="visionai-live",
                 video_processor_factory=VideoProcessor,
@@ -1125,26 +935,25 @@ with tab_analyse:
                 st.caption(f"Taille : {image_source['size']} octets")
 
     with zone_resultat:
-        st.subheader("­ƒºá R├®sultat de l'Analyse")
+        st.subheader("🧠 Résultat de l'Analyse")
 
-        # ÔöÇÔöÇ MODE WEBCAM TEMPS R├ëEL ÔöÇÔöÇ
-        if mode == "­ƒôÀ Webcam (temps r├®el)":
+        # ── MODE WEBCAM TEMPS RÉEL ──
+        if mode == "📷 Webcam (temps réel)":
             if ctx and ctx.state.playing and ctx.video_processor:
                 with ctx.video_processor.lock:
-                    live_result    = ctx.video_processor.result
-                    live_result_tf = ctx.video_processor.result_tf
+                    live_result = ctx.video_processor.result
 
                 if live_result:
                     cfg = CATEGORY_CONFIG.get(live_result["categorie"], CATEGORY_CONFIG["Inconnu"])
 
-                    # ÔöÇÔöÇ Nom reconnu ? ÔöÇÔöÇ
+                    # ── Nom reconnu ? ──
                     nom_reconnu = live_result.get("nom_visage")
                     conf_visage = live_result.get("conf_visage")
                     if nom_reconnu:
                         st.markdown(f"""
                         <div style='background:#1a3a1a; border:2px solid #4caf50; border-radius:12px;
                                     padding:12px 20px; text-align:center; margin-bottom:8px;'>
-                            <span style='font-size:1.8em'>­ƒæï</span>
+                            <span style='font-size:1.8em'>👋</span>
                             <h3 style='color:#4caf50; margin:4px 0;'>Bonjour <b>{nom_reconnu}</b> !</h3>
                             <p style='color:#aaa; margin:0;'>Confiance visage : {conf_visage}</p>
                         </div>
@@ -1152,10 +961,10 @@ with tab_analyse:
                     else:
                         st.markdown(f"## {cfg['emoji']} {live_result['categorie']}")
                         if live_result["categorie"] == "Humain":
-                            st.caption("­ƒæñ Visage non reconnu ÔÇö enregistre-toi dans **­ƒæÑ Reconnaissances de visages** !")
+                            st.caption("👤 Visage non reconnu — enregistre-toi dans **👥 Reconnaissances de visages** !")
 
                     c1, c2 = st.columns(2)
-                    c1.metric("Cat├®gorie d├®tect├®e", live_result["categorie"])
+                    c1.metric("Catégorie détectée", live_result["categorie"])
                     c2.metric("Confiance", live_result["score_pct"])
                     st.info(f"Label : `{live_result['label_reconnu']}`")
                     if live_result["easter_egg"]:
@@ -1164,16 +973,8 @@ with tab_analyse:
                     else:
                         st.success(cfg["message"])
 
-                    if live_result_tf:
-                        cfg_tf_l = CATEGORY_CONFIG.get(live_result_tf["categorie"], CATEGORY_CONFIG["Inconnu"])
-                        accord   = live_result["categorie"] == live_result_tf["categorie"]
-                        st.caption(
-                            f"­ƒöÀ **TF MobileNetV2** ÔåÆ {cfg_tf_l['emoji']} {live_result_tf['categorie']} "
-                            f"({live_result_tf['score_pct']}) {'✅ accord ViT' if accord else 'ÔÜá´©Å diverge de ViT'}"
-                        )
-
                     st.markdown("---")
-                    if st.button("­ƒÆ¥ Sauvegarder cette d├®tection dans MongoDB", type="primary"):
+                    if st.button("💾 Sauvegarder cette détection dans MongoDB", type="primary"):
                         try:
                             collection.insert_one({
                                 "date": datetime.now(),
@@ -1186,24 +987,24 @@ with tab_analyse:
                                     "label_reconnu": live_result["label_reconnu"],
                                 }
                             })
-                            st.success("Ô£à Sauvegard├® dans MongoDB !")
+                            st.success("✅ Sauvegardé dans MongoDB !")
                         except Exception as e:
                             st.error(f"Erreur MongoDB : {e}")
                 else:
-                    st.info("ÔÅ│ En attente de la premi├¿re analyse... (environ 2 secondes apr├¿s START)")
+                    st.info("⏳ En attente de la première analyse... (environ 2 secondes après START)")
             else:
-                st.info("ÔûÂ´©Å Cliquez sur START dans le flux vid├®o pour lancer la d├®tection en temps r├®el.")
+                st.info("▶️ Cliquez sur START dans le flux vidéo pour lancer la détection en temps réel.")
 
-        # ÔöÇÔöÇ MODE FICHIER ÔöÇÔöÇ
+        # ── MODE FICHIER ──
         elif image_source is not None:
-            with st.spinner("Analyse en cours par le mod├¿le ViT..."):
+            with st.spinner("Analyse en cours par le modèle ViT..."):
                 resultat = analyser_image(pil_image)
 
             cfg = CATEGORY_CONFIG.get(resultat["categorie"], CATEGORY_CONFIG["Inconnu"])
 
             st.markdown(f"## {cfg['emoji']} {resultat['categorie']}")
 
-            # ÔöÇÔöÇ Sauvegarde MongoDB (imm├®diatement visible) ÔöÇÔöÇ
+            # ── Sauvegarde MongoDB (immédiatement visible) ──
             try:
                 document = {
                     "date": datetime.now(),
@@ -1217,83 +1018,43 @@ with tab_analyse:
                     }
                 }
                 collection.insert_one(document)
-                st.success("Ô£à R├®sultat enregistr├® dans MongoDB !")
+                st.success("✅ Résultat enregistré dans MongoDB !")
             except Exception as e:
                 st.error(f"Erreur MongoDB : {e}")
 
-            # ÔöÇÔöÇ Reconnaissance faciale si Humain ÔöÇÔöÇ
+            # ── Reconnaissance faciale si Humain ──
             nom_reconnu, conf_visage = None, None
             if resultat["categorie"] == "Humain":
-                with st.spinner("­ƒæÑ Recherche du visage dans le registre..."):
+                with st.spinner("👥 Recherche du visage dans le registre..."):
                     nom_reconnu, conf_visage = reconnaitre_visage(pil_image)
             if nom_reconnu:
                 st.markdown(f"""
                 <div style='background:#1a3a1a; border:2px solid #4caf50; border-radius:12px;
                             padding:16px 24px; text-align:center; margin-bottom:12px;'>
-                    <span style='font-size:2em'>­ƒæï</span>
+                    <span style='font-size:2em'>👋</span>
                     <h3 style='color:#4caf50; margin:6px 0;'>Bonjour <b>{nom_reconnu}</b> !</h3>
                     <p style='color:#aaa; margin:0;'>Confiance : {conf_visage}</p>
                 </div>
                 """, unsafe_allow_html=True)
             elif resultat["categorie"] == "Humain":
-                st.caption("­ƒæñ Visage non reconnu ÔÇö enregistre-toi dans l'onglet **­ƒæÑ Reconnaissances de visages** !")
+                st.caption("👤 Visage non reconnu — enregistre-toi dans l'onglet **👥 Reconnaissances de visages** !")
 
             c1, c2 = st.columns(2)
-            c1.metric("Cat├®gorie d├®tect├®e", resultat["categorie"])
-            c2.metric("Taux de r├®ussite", resultat["score_pct"])
-            st.info(f"Label principal du mod├¿le : `{resultat['label_brut']}`  \nLabel ayant d├®clench├® la cat├®gorie : `{resultat['label_reconnu']}`")
+            c1.metric("Catégorie détectée", resultat["categorie"])
+            c2.metric("Taux de réussite", resultat["score_pct"])
+            st.info(f"Label principal du modèle : `{resultat['label_brut']}`  \nLabel ayant déclenché la catégorie : `{resultat['label_reconnu']}`")
 
             if resultat["easter_egg"]:
                 st.balloons()
                 st.warning(resultat["easter_egg"])
             else:
                 st.success(cfg["message"])
-
-            # ÔöÇÔöÇ Comparaison TensorFlow MobileNetV2 ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-            st.markdown("---")
-            st.subheader("­ƒåÜ Comparaison des mod├¿les")
-            with st.spinner("Analyse TensorFlow / MobileNetV2 en cours..."):
-                resultat_tf = analyser_image_tf(pil_image)
-
-            if resultat_tf is None:
-                st.warning("ÔÜá´©Å TensorFlow n'est pas disponible dans cet environnement.")
-            else:
-                cfg_tf  = CATEGORY_CONFIG.get(resultat_tf["categorie"], CATEGORY_CONFIG["Inconnu"])
-                cfg_vit = CATEGORY_CONFIG.get(resultat["categorie"],    CATEGORY_CONFIG["Inconnu"])
-
-                col_vit, col_tf = st.columns(2)
-                with col_vit:
-                    st.markdown("""
-                    <div style='background:#1a1a2e; border:2px solid #4f8ef7;
-                                border-radius:10px; padding:14px; text-align:center;'>
-                        <p style='color:#4f8ef7; font-weight:bold; margin:0 0 6px;'>­ƒñû ViT ÔÇô HuggingFace / PyTorch</p>
-                    """, unsafe_allow_html=True)
-                    st.metric("Cat├®gorie", f"{cfg_vit['emoji']} {resultat['categorie']}")
-                    st.metric("Confiance", resultat["score_pct"])
-                    st.caption(f"Label : `{resultat['label_reconnu']}`")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                with col_tf:
-                    st.markdown("""
-                    <div style='background:#1a2e1a; border:2px solid #f7a24f;
-                                border-radius:10px; padding:14px; text-align:center;'>
-                        <p style='color:#f7a24f; font-weight:bold; margin:0 0 6px;'>­ƒöÀ MobileNetV2 ÔÇô TensorFlow / Keras</p>
-                    """, unsafe_allow_html=True)
-                    st.metric("Cat├®gorie", f"{cfg_tf['emoji']} {resultat_tf['categorie']}")
-                    st.metric("Confiance", resultat_tf["score_pct"])
-                    st.caption(f"Label : `{resultat_tf['label_reconnu']}`")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                if resultat["categorie"] == resultat_tf["categorie"]:
-                    st.success(f"Ô£à Les deux mod├¿les sont **d'accord** : **{resultat['categorie']}**")
-                else:
-                    st.warning(f"ÔÜá´©Å Les mod├¿les **divergent** : ViT ÔåÆ **{resultat['categorie']}** | TensorFlow ÔåÆ **{resultat_tf['categorie']}**")
         else:
-            st.info("Prenez une photo ou uploadez une image ├á gauche pour lancer l'analyse.")
+            st.info("Prenez une photo ou uploadez une image à gauche pour lancer l'analyse.")
 
-    # ÔöÇÔöÇ Historique ÔöÇÔöÇ
+    # ── Historique ──
     st.markdown("---")
-    st.header("­ƒôï Historique des Analyses")
+    st.header("📋 Historique des Analyses")
 
     historique_docs = list(collection.find().sort("date", -1))
 
@@ -1308,51 +1069,51 @@ with tab_analyse:
                 "Date": doc["date"].strftime("%Y-%m-%d %H:%M:%S"),
                 "Nom du fichier": doc.get("nom", "N/A"),
                 "Taille (octets)": doc.get("taille", "N/A"),
-                "Cat├®gorie": f"{cfg['emoji']} {categorie}",
-                "Taux de r├®ussite": analyse.get("taux_reussite", "N/A"),
+                "Catégorie": f"{cfg['emoji']} {categorie}",
+                "Taux de réussite": analyse.get("taux_reussite", "N/A"),
                 "Label brut": analyse.get("label_brut", "N/A"),
             })
 
         df = pd.DataFrame(historique_a_afficher)
         st.dataframe(df.drop(columns=["ID"]), use_container_width=True, hide_index=True)
 
-        st.markdown("### ­ƒôè R├®partition des cat├®gories d├®tect├®es")
-        comptage = df["Cat├®gorie"].value_counts().reset_index()
-        comptage.columns = ["Cat├®gorie", "Nombre d'analyses"]
-        st.bar_chart(data=comptage.set_index("Cat├®gorie"))
+        st.markdown("### 📊 Répartition des catégories détectées")
+        comptage = df["Catégorie"].value_counts().reset_index()
+        comptage.columns = ["Catégorie", "Nombre d'analyses"]
+        st.bar_chart(data=comptage.set_index("Catégorie"))
 
-        st.markdown("### ­ƒùæ´©Å Supprimer un enregistrement")
+        st.markdown("### 🗑️ Supprimer un enregistrement")
         options = {
-            f"{r['Nom du fichier']} ÔÇô {r['Date']} ({r['Cat├®gorie']})": r["ID"]
+            f"{r['Nom du fichier']} – {r['Date']} ({r['Catégorie']})": r["ID"]
             for r in historique_a_afficher
         }
-        element = st.selectbox("S├®lectionner l'image ├á supprimer :", list(options.keys()))
+        element = st.selectbox("Sélectionner l'image à supprimer :", list(options.keys()))
 
         c_del, c_all = st.columns([1, 2])
         with c_del:
-            if st.button("­ƒùæ´©Å Supprimer cet enregistrement", type="primary"):
+            if st.button("🗑️ Supprimer cet enregistrement", type="primary"):
                 try:
                     collection.delete_one({"_id": ObjectId(options[element])})
-                    st.success("Enregistrement supprim├® !")
+                    st.success("Enregistrement supprimé !")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erreur : {e}")
         with c_all:
-            if st.button("­ƒº╣ Vider tout l'historique"):
+            if st.button("🧹 Vider tout l'historique"):
                 collection.delete_many({})
-                st.warning("Historique enti├¿rement vid├®.")
+                st.warning("Historique entièrement vidé.")
                 st.rerun()
     else:
-        st.info("Aucune analyse enregistr├®e pour le moment. Uploadez une image ci-dessus !")
+        st.info("Aucune analyse enregistrée pour le moment. Uploadez une image ci-dessus !")
 
 
-# ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-# ONGLET 2 ÔÇô JEU DE D├ëTECTION (Chasse aux Objets)
-# ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+# ══════════════════════════════════════════════════════
+# ONGLET 2 – JEU DE DÉTECTION (Chasse aux Objets)
+# ══════════════════════════════════════════════════════
 with tab_jeu:
     NB_MANCHES = 10
 
-    # ÔöÇÔöÇ Initialisation session state ÔöÇÔöÇ
+    # ── Initialisation session state ──
     for _key, _val in [
         ("game_active", False), ("game_over", False), ("game_round", 1),
         ("game_score", 0), ("game_history", []), ("game_defi_order", []),
@@ -1361,24 +1122,24 @@ with tab_jeu:
         if _key not in st.session_state:
             st.session_state[_key] = _val
 
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-    # ├ëCRAN D'ACCUEIL
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+    # ════════════════════════════════════════
+    # ÉCRAN D'ACCUEIL
+    # ════════════════════════════════════════
     if not st.session_state.game_active and not st.session_state.game_over:
         st.markdown("""
         <div style='text-align:center; padding: 50px 20px;'>
-            <h1 style='font-size:3em;'>­ƒÄ« Chasse aux Objets !</h1>
+            <h1 style='font-size:3em;'>🎮 Chasse aux Objets !</h1>
             <p style='font-size:1.3em; color: #aaa;'>
-                Un d├®fi s'affiche ÔÇö tu as un <b>temps limit├®</b> pour rapporter l'objet devant la cam├®ra !<br>
-                Plus tu es rapide, plus tu gagnes de points. ÔÜí<br><br>
-                <b>10 manches &nbsp;┬À&nbsp; Chrono &nbsp;┬À&nbsp; Bonus vitesse &nbsp;┬À&nbsp; Classement final</b>
+                Un défi s'affiche — tu as un <b>temps limité</b> pour rapporter l'objet devant la caméra !<br>
+                Plus tu es rapide, plus tu gagnes de points. ⚡<br><br>
+                <b>10 manches &nbsp;·&nbsp; Chrono &nbsp;·&nbsp; Bonus vitesse &nbsp;·&nbsp; Classement final</b>
             </p>
         </div>
         """, unsafe_allow_html=True)
 
         _, col_btn, _ = st.columns([1, 2, 1])
         with col_btn:
-            if st.button("­ƒÜÇ LANCER LA PARTIE !", type="primary", use_container_width=True):
+            if st.button("🚀 LANCER LA PARTIE !", type="primary", use_container_width=True):
                 st.session_state.game_active = True
                 st.session_state.game_round = 1
                 st.session_state.game_score = 0
@@ -1389,22 +1150,22 @@ with tab_jeu:
                 st.session_state.game_start_time = time.time()
                 st.rerun()
 
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-    # ├ëCRAN FIN DE PARTIE
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+    # ════════════════════════════════════════
+    # ÉCRAN FIN DE PARTIE
+    # ════════════════════════════════════════
     elif st.session_state.game_over:
         score_final = st.session_state.game_score
         score_max = sum(d["points_max"] for d in st.session_state.game_defi_order)
         pct = int(score_final / score_max * 100) if score_max > 0 else 0
 
         if pct >= 80:
-            titre, medal = "CHAMPION ABSOLU !", "­ƒÅå"
+            titre, medal = "CHAMPION ABSOLU !", "🏆"
         elif pct >= 60:
-            titre, medal = "Tr├¿s bien jou├® !", "­ƒÑç"
+            titre, medal = "Très bien joué !", "🥇"
         elif pct >= 40:
-            titre, medal = "Pas mal du tout !", "­ƒÑê"
+            titre, medal = "Pas mal du tout !", "🥈"
         else:
-            titre, medal = "Continue de t'entra├«ner !", "­ƒÆ¬"
+            titre, medal = "Continue de t'entraîner !", "💪"
 
         st.markdown(f"""
         <div style='text-align:center; padding: 30px 0;'>
@@ -1417,29 +1178,29 @@ with tab_jeu:
         if pct >= 60:
             st.balloons()
 
-        st.markdown("### ­ƒôï R├®capitulatif des 10 manches")
+        st.markdown("### 📋 Récapitulatif des 10 manches")
         recap_data = []
         for i, h in enumerate(st.session_state.game_history):
             recap_data.append({
                 "Manche": f"#{i + 1}",
-                "D├®fi": h["defi"],
-                "R├®sultat": "Ô£à Gagn├®e" if h["won"] else "ÔØî Perdue",
+                "Défi": h["defi"],
+                "Résultat": "✅ Gagnée" if h["won"] else "❌ Perdue",
                 "Points": h["points"],
-                "Temps": f"{h['temps_pris']:.1f}s" if h["won"] else "ÔÇö",
+                "Temps": f"{h['temps_pris']:.1f}s" if h["won"] else "—",
             })
         st.dataframe(pd.DataFrame(recap_data), use_container_width=True, hide_index=True)
 
         _, col_r, _ = st.columns([1, 2, 1])
         with col_r:
-            if st.button("­ƒöä Rejouer une nouvelle partie !", type="primary", use_container_width=True):
+            if st.button("🔄 Rejouer une nouvelle partie !", type="primary", use_container_width=True):
                 for k in ["game_active", "game_over", "game_round", "game_score",
                           "game_history", "game_defi_order", "game_round_won"]:
                     del st.session_state[k]
                 st.rerun()
 
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+    # ════════════════════════════════════════
     # PARTIE EN COURS
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+    # ════════════════════════════════════════
     else:
         round_idx = st.session_state.game_round - 1
         defi = st.session_state.game_defi_order[round_idx]
@@ -1447,19 +1208,19 @@ with tab_jeu:
         remaining = max(0.0, defi["temps"] - elapsed)
         time_ratio = remaining / defi["temps"]
 
-        # ÔöÇÔöÇ Header : manche / score / chrono ÔöÇÔöÇ
+        # ── Header : manche / score / chrono ──
         hc1, hc2, hc3 = st.columns([2, 1, 1])
         with hc1:
             st.markdown(f"### Manche **{st.session_state.game_round}** / {NB_MANCHES}")
         with hc2:
-            st.metric("­ƒÅà Score", f"{st.session_state.game_score} pts")
+            st.metric("🏅 Score", f"{st.session_state.game_score} pts")
         with hc3:
-            color = "­ƒƒó" if time_ratio > 0.5 else ("­ƒƒí" if time_ratio > 0.2 else "­ƒö┤")
+            color = "🟢" if time_ratio > 0.5 else ("🟡" if time_ratio > 0.2 else "🔴")
             st.metric(f"{color} Temps", f"{int(remaining)}s")
 
         st.progress(time_ratio)
 
-        # ÔöÇÔöÇ Grand encart du d├®fi ÔöÇÔöÇ
+        # ── Grand encart du défi ──
         border_color = "#e94560" if time_ratio > 0.25 else "#ff0000"
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
@@ -1467,18 +1228,18 @@ with tab_jeu:
                     padding: 40px 30px; text-align: center; margin: 15px 0;'>
             <div style='font-size: 4em; margin-bottom: 10px;'>{defi["emoji"]}</div>
             <h2 style='color: white; font-size: 2.2em; margin: 0 0 12px 0;'>{defi["texte"]}</h2>
-            <p style='color: #aaa; font-size: 1.1em; margin: 0;'>­ƒÆí {defi["conseil"]}</p>
+            <p style='color: #aaa; font-size: 1.1em; margin: 0;'>💡 {defi["conseil"]}</p>
             <p style='color: #e94560; font-size: 1em; margin-top: 10px;'>
-                ÔÅ▒ {defi["temps"]}s max &nbsp;┬À&nbsp; ­ƒÄ» jusqu'├á {defi["points_max"]} pts
+                ⏱ {defi["temps"]}s max &nbsp;·&nbsp; 🎯 jusqu'à {defi["points_max"]} pts
             </p>
         </div>
         """, unsafe_allow_html=True)
 
-        # ÔöÇÔöÇ Webcam jeu | R├®sultat c├┤te ├á c├┤te ÔöÇÔöÇ
+        # ── Webcam jeu | Résultat côte à côte ──
         gcol1, gcol2 = st.columns([1, 1], gap="large")
 
         with gcol1:
-            st.caption("­ƒôÀ Lance la cam├®ra et pointe-la vers l'objet !")
+            st.caption("📷 Lance la caméra et pointe-la vers l'objet !")
             ctx_game = webrtc_streamer(
                 key="game-webcam",
                 video_processor_factory=VideoProcessor,
@@ -1487,19 +1248,17 @@ with tab_jeu:
             )
 
         with gcol2:
-            st.subheader("­ƒÄ» D├®tection en cours...")
-            game_result    = None
-            game_result_tf = None
+            st.subheader("🎯 Détection en cours...")
+            game_result = None
             if ctx_game and ctx_game.state.playing and ctx_game.video_processor:
                 with ctx_game.video_processor.lock:
-                    game_result    = ctx_game.video_processor.result
-                    game_result_tf = ctx_game.video_processor.result_tf
+                    game_result = ctx_game.video_processor.result
 
             if game_result:
                 detected_cat = game_result["categorie"]
                 cfg_det = CATEGORY_CONFIG.get(detected_cat, CATEGORY_CONFIG["Inconnu"])
 
-                # V├®rifier si le r├®sultat correspond au d├®fi
+                # Vérifier si le résultat correspond au défi
                 kws = defi.get("keywords")
                 won = False
                 if detected_cat == defi["categorie"]:
@@ -1512,30 +1271,22 @@ with tab_jeu:
                         won = True
 
                 if won:
-                    st.markdown(f"### Ô£à {cfg_det['emoji']} {detected_cat}")
-                    st.success(f"**C'est bien ├ºa !** Label : `{game_result['label_reconnu']}` ÔÇô {game_result['score_pct']}")
+                    st.markdown(f"### ✅ {cfg_det['emoji']} {detected_cat}")
+                    st.success(f"**C'est bien ça !** Label : `{game_result['label_reconnu']}` – {game_result['score_pct']}")
                 else:
-                    st.markdown(f"**D├®tect├® :** {cfg_det['emoji']} {detected_cat}")
-                    st.caption(f"Label : `{game_result['label_reconnu']}` ÔÇö {game_result['score_pct']}")
-                    st.warning(f"Ce n'est pas ├ºa... cherche un(e) **{defi['categorie']}** !")
+                    st.markdown(f"**Détecté :** {cfg_det['emoji']} {detected_cat}")
+                    st.caption(f"Label : `{game_result['label_reconnu']}` — {game_result['score_pct']}")
+                    st.warning(f"Ce n'est pas ça... cherche un(e) **{defi['categorie']}** !")
 
-                if game_result_tf:
-                    cfg_tf_g = CATEGORY_CONFIG.get(game_result_tf["categorie"], CATEGORY_CONFIG["Inconnu"])
-                    accord_g = game_result["categorie"] == game_result_tf["categorie"]
-                    st.caption(
-                        f"­ƒöÀ TF MobileNetV2 : {cfg_tf_g['emoji']} **{game_result_tf['categorie']}** "
-                        f"({game_result_tf['score_pct']}) {'✅' if accord_g else 'ÔÜá´©Å diverge'}"
-                    )
-
-                # ÔöÇÔöÇ Victoire ÔöÇÔöÇ
+                # ── Victoire ──
                 if won and not st.session_state.game_round_won:
                     temps_pris = elapsed
                     if temps_pris < defi["temps"] * 0.25:
                         bonus = int(defi["points_max"] * 0.5)
-                        bonus_txt = f"ÔÜí Bonus ├ëCLAIR +{bonus} pts !"
+                        bonus_txt = f"⚡ Bonus ÉCLAIR +{bonus} pts !"
                     elif temps_pris < defi["temps"] * 0.5:
                         bonus = int(defi["points_max"] * 0.25)
-                        bonus_txt = f"­ƒÜÇ Bonus RAPIDE +{bonus} pts !"
+                        bonus_txt = f"🚀 Bonus RAPIDE +{bonus} pts !"
                     else:
                         bonus, bonus_txt = 0, ""
 
@@ -1547,7 +1298,7 @@ with tab_jeu:
                         "points": pts, "temps_pris": temps_pris,
                     })
                     st.balloons()
-                    st.success(f"­ƒÄë TROUV├ë en {temps_pris:.1f}s ! **+{pts} pts**" +
+                    st.success(f"🎉 TROUVÉ en {temps_pris:.1f}s ! **+{pts} pts**" +
                                (f"  \n{bonus_txt}" if bonus_txt else ""))
                     time.sleep(2.5)
                     if st.session_state.game_round >= NB_MANCHES:
@@ -1559,11 +1310,11 @@ with tab_jeu:
                         st.session_state.game_round_won = False
                     st.rerun()
             else:
-                st.info("ÔÅ│ Lance la cam├®ra et pointe-la vers l'objet !")
+                st.info("⏳ Lance la caméra et pointe-la vers l'objet !")
 
-        # ÔöÇÔöÇ Temps ├®coul├® ÔöÇÔöÇ
+        # ── Temps écoulé ──
         if remaining <= 0 and not st.session_state.game_round_won:
-            st.error(f"ÔÅ░ TEMPS ├ëCOUL├ë ! Il fallait trouver : **{defi['texte']}**")
+            st.error(f"⏰ TEMPS ÉCOULÉ ! Il fallait trouver : **{defi['texte']}**")
             st.session_state.game_history.append({
                 "defi": defi["texte"], "won": False, "points": 0, "temps_pris": 0,
             })
@@ -1577,25 +1328,25 @@ with tab_jeu:
                 st.session_state.game_round_won = False
             st.rerun()
 
-        # ÔöÇÔöÇ Barre de progression des manches ÔöÇÔöÇ
+        # ── Barre de progression des manches ──
         st.markdown("---")
         manche_cols = st.columns(NB_MANCHES)
         for i, col in enumerate(manche_cols):
             mn = i + 1
             if mn < st.session_state.game_round:
                 h = st.session_state.game_history[i] if i < len(st.session_state.game_history) else None
-                icon = "Ô£à" if (h and h["won"]) else "ÔØî"
+                icon = "✅" if (h and h["won"]) else "❌"
             elif mn == st.session_state.game_round:
-                icon = "­ƒÄ»"
+                icon = "🎯"
             else:
-                icon = "Ô¼£"
+                icon = "⬜"
             col.markdown(
                 f"<div style='text-align:center'>{icon}<br><small style='color:#aaa'>#{mn}</small></div>",
                 unsafe_allow_html=True,
             )
 
-        # ÔöÇÔöÇ Bouton passer ÔöÇÔöÇ
-        if st.button("ÔÅ¡´©Å Passer cette manche (0 pts)"):
+        # ── Bouton passer ──
+        if st.button("⏭️ Passer cette manche (0 pts)"):
             st.session_state.game_history.append({
                 "defi": defi["texte"], "won": False, "points": 0, "temps_pris": 0,
             })
@@ -1608,36 +1359,36 @@ with tab_jeu:
                 st.session_state.game_round_won = False
             st.rerun()
 
-        # ÔöÇÔöÇ Auto-refresh chrono (toutes les 0.8s) ÔöÇÔöÇ
+        # ── Auto-refresh chrono (toutes les 0.8s) ──
         if st.session_state.game_active and not st.session_state.game_round_won:
             time.sleep(0.8)
             st.rerun()
 
 
-# ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-# ONGLET 3 ÔÇô GESTION DES VISAGES
-# ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+# ══════════════════════════════════════════════
+# ONGLET 3 – GESTION DES VISAGES
+# ══════════════════════════════════════════════
 with tab_visages:
-    st.header("­ƒæÑ Registre des visages")
-    st.caption("Enregistre ton visage ici ÔÇö l'IA te reconna├«tra dans l'onglet Analyse ou pendant le jeu !")
+    st.header("👥 Registre des visages")
+    st.caption("Enregistre ton visage ici — l'IA te reconnaîtra dans l'onglet Analyse ou pendant le jeu !")
     st.markdown("---")
 
     vcol1, vcol2 = st.columns([1, 1], gap="large")
 
-    # ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    # ────────────────────
     # ENREGISTREMENT
-    # ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    # ────────────────────
     with vcol1:
-        st.subheader("Ô×ò Ajouter un visage")
-        nom_input = st.text_input("­ƒôØ Pr├®nom ou nom ├á associer :", placeholder="ex: Paul, Marie...")
-        reg_mode = st.radio("Source :", ["­ƒôÀ Webcam", "­ƒôé Fichier"], horizontal=True)
+        st.subheader("➕ Ajouter un visage")
+        nom_input = st.text_input("📝 Prénom ou nom à associer :", placeholder="ex: Paul, Marie...")
+        reg_mode = st.radio("Source :", ["📷 Webcam", "📂 Fichier"], horizontal=True)
 
         reg_img = None
-        if reg_mode == "­ƒôÀ Webcam":
+        if reg_mode == "📷 Webcam":
             reg_photo = st.camera_input("Prends une photo de ton visage")
             if reg_photo:
                 reg_img = Image.open(reg_photo).convert("RGB")
-                st.image(reg_img, caption="Photo captur├®e", use_container_width=True)
+                st.image(reg_img, caption="Photo capturée", use_container_width=True)
         else:
             reg_file = st.file_uploader("Importe une photo", type=["jpg", "jpeg", "png"],
                                         key="reg_face_upload")
@@ -1645,7 +1396,7 @@ with tab_visages:
                 reg_img = Image.open(reg_file).convert("RGB")
                 st.image(reg_img, caption=reg_file.name, use_container_width=True)
 
-        if st.button("­ƒÆ¥ Enregistrer ce visage", type="primary", disabled=(not nom_input or reg_img is None)):
+        if st.button("💾 Enregistrer ce visage", type="primary", disabled=(not nom_input or reg_img is None)):
             ok, msg = enregistrer_visage(reg_img, nom_input.strip())
             if ok:
                 st.success(msg)
@@ -1656,45 +1407,45 @@ with tab_visages:
         st.markdown("")
         st.markdown("""
         **Conseils pour un bon enregistrement :**
-        - Visage face ├á la cam├®ra, bien ├®clair├®
-        - Ajoute 2-3 photos sous des angles diff├®rents pour am├®liorer la pr├®cision
-        - ├ëvite les lunettes de soleil ou le masque
+        - Visage face à la caméra, bien éclairé
+        - Ajoute 2-3 photos sous des angles différents pour améliorer la précision
+        - Évite les lunettes de soleil ou le masque
         """)
 
-    # ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    # ────────────────────
     # REGISTRE ACTUEL
-    # ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    # ────────────────────
     with vcol2:
-        st.subheader("­ƒôï Personnes enregistr├®es")
+        st.subheader("📋 Personnes enregistrées")
         faces_db = charger_db_visages()
 
         if not faces_db:
-            st.info("Aucun visage enregistr├® pour l'instant. Ajoute-toi ├á gauche !")
+            st.info("Aucun visage enregistré pour l'instant. Ajoute-toi à gauche !")
         else:
             for nom, embeddings in faces_db.items():
                 col_n, col_d = st.columns([3, 1])
-                col_n.markdown(f"­ƒæñ **{nom}** ÔÇö {len(embeddings)} photo(s)")
+                col_n.markdown(f"👤 **{nom}** — {len(embeddings)} photo(s)")
                 if col_d.button("Supprimer", key=f"del_{nom}"):
                     del faces_db[nom]
                     sauvegarder_db_visages(faces_db)
-                    st.success(f"{nom} supprim├® du registre.")
+                    st.success(f"{nom} supprimé du registre.")
                     st.rerun()
 
             st.markdown("---")
-            if st.button("­ƒùæ´©Å Effacer tout le registre"):
+            if st.button("🗑️ Effacer tout le registre"):
                 sauvegarder_db_visages({})
-                st.warning("Registre vid├®.")
+                st.warning("Registre vidé.")
                 st.rerun()
 
-    # ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    # ──────────────────────
     # TEST DE RECONNAISSANCE
-    # ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    # ──────────────────────
     st.markdown("---")
-    st.subheader("­ƒºÉ Tester la reconnaissance")
-    test_mode = st.radio("Source du test :", ["­ƒôÀ Webcam", "­ƒôé Fichier"], horizontal=True, key="test_mode")
+    st.subheader("🧐 Tester la reconnaissance")
+    test_mode = st.radio("Source du test :", ["📷 Webcam", "📂 Fichier"], horizontal=True, key="test_mode")
 
     test_img = None
-    if test_mode == "­ƒôÀ Webcam":
+    if test_mode == "📷 Webcam":
         test_snap = st.camera_input("Prends une photo pour tester")
         if test_snap:
             test_img = Image.open(test_snap).convert("RGB")
@@ -1709,49 +1460,49 @@ with tab_visages:
         with tcol1:
             st.image(test_img, caption="Image test", use_container_width=True)
         with tcol2:
-            with st.spinner("­ƒöì Analyse du visage..."):
+            with st.spinner("🔍 Analyse du visage..."):
                 nom_test, conf_test = reconnaitre_visage(test_img)
             if nom_test:
                 st.markdown(f"""
                 <div style='background:#1a3a1a; border:2px solid #4caf50; border-radius:16px;
                             padding:24px; text-align:center; margin-top:20px;'>
-                    <div style='font-size:3em'>­ƒæï</div>
+                    <div style='font-size:3em'>👋</div>
                     <h2 style='color:#4caf50;'>Bonjour <b>{nom_test}</b> !</h2>
-                    <p style='color:#aaa;'>Similarit├® : <b>{conf_test}</b></p>
+                    <p style='color:#aaa;'>Similarité : <b>{conf_test}</b></p>
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 db_check = charger_db_visages()
                 if not db_check:
-                    st.warning("ÔÜá´©Å Aucun visage enregistr├®. Ajoute-toi d'abord !")
+                    st.warning("⚠️ Aucun visage enregistré. Ajoute-toi d'abord !")
                 else:
-                    st.error("ÔØî Visage non reconnu dans le registre.")
-                    st.caption("Essaie d'ajouter plus de photos sous diff├®rents angles.")
+                    st.error("❌ Visage non reconnu dans le registre.")
+                    st.caption("Essaie d'ajouter plus de photos sous différents angles.")
 
 
-# ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-# ONGLET 4 ÔÇô JEU 007
-# ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+# ══════════════════════════════════════════════════════
+# ONGLET 4 – JEU 007
+# ══════════════════════════════════════════════════════
 with tab_007:
-    st.header("­ƒö½ 007 ÔÇô Duel contre l'IA")
-    st.caption("Apprends ├á l'IA tes gestes, puis affronte-la en duel !")
+    st.header("🔫 007 – Duel contre l'IA")
+    st.caption("Apprends à l'IA tes gestes, puis affronte-la en duel !")
     st.markdown("---")
 
-    sub_appren, sub_jeu007 = st.tabs(["­ƒôÜ 1. Apprendre les gestes", "­ƒÄ« 2. Jouer"])
+    sub_appren, sub_jeu007 = st.tabs(["📚 1. Apprendre les gestes", "🎮 2. Jouer"])
 
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-    # SOUS-ONGLET A ÔÇô APPRENTISSAGE DES GESTES
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+    # ══════════════════════════════════════════
+    # SOUS-ONGLET A – APPRENTISSAGE DES GESTES
+    # ══════════════════════════════════════════
     with sub_appren:
-        st.subheader("­ƒô© Enregistre tes gestes")
+        st.subheader("📸 Enregistre tes gestes")
         st.markdown(
-            f"Minimum **{GESTURES_NB_MIN} photos** par geste pour jouer ÔÇö mais plus tu en ajoutes, "
-            "plus la d├®tection sera pr├®cise. **Pas besoin d'appuyer pendant le geste** : "
-            "clique sur le bouton, puis pose les deux mains et attends le d├®compte !"
+            f"Minimum **{GESTURES_NB_MIN} photos** par geste pour jouer — mais plus tu en ajoutes, "
+            "plus la détection sera précise. **Pas besoin d'appuyer pendant le geste** : "
+            "clique sur le bouton, puis pose les deux mains et attends le décompte !"
         )
         st.markdown("---")
 
-        # ÔöÇÔöÇ Init session state d├®compte ÔöÇÔöÇ
+        # ── Init session state décompte ──
         for _k, _dv in [
             ("glearn_geste_sel", list(GESTURES_CONFIG.keys())[0]),
             ("glearn_cd_start",  None),   # float timestamp ou None
@@ -1762,16 +1513,16 @@ with tab_007:
 
         db_gestes = charger_db_gestes()
 
-        # ÔöÇÔöÇ Barre de progression globale ÔöÇÔöÇ
+        # ── Barre de progression globale ──
         total_done   = sum(len(db_gestes.get(k, [])) for k in GESTURES_CONFIG)
         total_needed = len(GESTURES_CONFIG) * GESTURES_NB_MIN
         pct_done     = min(1.0, total_done / total_needed)
-        st.progress(pct_done, text=f"Progression minimum : {total_done}/{total_needed} photos enregistr├®es")
+        st.progress(pct_done, text=f"Progression minimum : {total_done}/{total_needed} photos enregistrées")
         if total_done >= total_needed:
-            st.success("Ô£à Minimum atteint ! Va dans **­ƒÄ« 2. Jouer** pour d├®marrer. Tu peux continuer ├á ajouter des photos pour am├®liorer la pr├®cision.")
+            st.success("✅ Minimum atteint ! Va dans **🎮 2. Jouer** pour démarrer. Tu peux continuer à ajouter des photos pour améliorer la précision.")
         st.markdown("")
 
-        # ÔöÇÔöÇ Compteurs par geste ÔöÇÔöÇ
+        # ── Compteurs par geste ──
         cnt_cols = st.columns(len(GESTURES_CONFIG))
         for col, (gk, gcfg) in zip(cnt_cols, GESTURES_CONFIG.items()):
             nb = len(db_gestes.get(gk, []))
@@ -1783,14 +1534,14 @@ with tab_007:
                 f"<div style='font-size:2em'>{gcfg['emoji']}</div>"
                 f"<b style='color:{'#4caf50' if ok else '#ddd'};'>{gcfg['label']}</b><br>"
                 f"<span style='color:#aaa; font-size:0.95em;'>{nb} photo(s)"
-                f"{' Ô£à' if ok else f' / {GESTURES_NB_MIN} min'}</span>"
+                f"{' ✅' if ok else f' / {GESTURES_NB_MIN} min'}</span>"
                 f"</div>",
                 unsafe_allow_html=True
             )
 
         st.markdown("---")
 
-        # ÔöÇÔöÇ S├®lecteur de geste ÔöÇÔöÇ
+        # ── Sélecteur de geste ──
         geste_labels = {k: f"{v['emoji']} {v['label']}" for k, v in GESTURES_CONFIG.items()}
         geste_sel = st.radio(
             "Quel geste veux-tu capturer ?",
@@ -1800,78 +1551,68 @@ with tab_007:
             key="glearn_geste_sel",
         )
         gcfg_sel = GESTURES_CONFIG[geste_sel]
-        st.caption(f"­ƒÆí {gcfg_sel['desc']}")
+        st.caption(f"💡 {gcfg_sel['desc']}")
         st.markdown("")
 
-        # ÔöÇÔöÇ Webcam unique + d├®compte ÔöÇÔöÇ
+        # ── Webcam unique + décompte ──
         lcol, rcol = st.columns([1.2, 1])
 
         with lcol:
-            ctx_learn = webrtc_streamer(
-                key="learn_cam",
-                video_processor_factory=VideoProcessor,
-                media_stream_constraints={"video": True, "audio": False},
-                async_processing=True,
-            )
-
-        with rcol:
-            cd_box    = st.empty()
-            msg_box   = st.empty()
-
             cd_start = st.session_state.glearn_cd_start
+            nb_deja  = len(db_gestes.get(geste_sel, []))
 
-            # ÔöÇÔöÇ D├®compte en cours ÔöÇÔöÇ
             if cd_start is not None:
                 elapsed_cd = time.time() - cd_start
                 remaining  = 3.0 - elapsed_cd
 
                 if remaining > 0:
-                    # Affichage du d├®compte
-                    step = int(remaining) + 1   # 3 ÔåÆ 2 ÔåÆ 1
-                    cd_box.markdown(
-                        f"<div style='text-align:center; padding:30px; "
-                        f"border:3px solid #ffa500; border-radius:16px;'>"
-                        f"<p style='color:#aaa; margin:0;'>Pr├®pare ton geste :</p>"
-                        f"<h1 style='font-size:5em; margin:4px 0; color:#ffa500;'>{step}</h1>"
-                        f"<p style='color:#aaa; font-size:1.1em'>{gcfg_sel['emoji']} {gcfg_sel['label']}</p>"
+                    step = int(remaining) + 1  # 3, 2, 1
+                    col_cd = {3: "#ffa500", 2: "#ff6600", 1: "#ff2222"}.get(step, "#ff2222")
+                    st.markdown(
+                        f"<div style='text-align:center; padding:40px 20px; "
+                        f"border:3px solid {col_cd}; border-radius:20px; background:#160500;'>"
+                        f"<p style='color:#aaa; margin:0 0 8px;'>Prépare ton geste :</p>"
+                        f"<h1 style='font-size:7em; margin:0; color:{col_cd};'>{step}</h1>"
+                        f"<p style='color:#aaa; font-size:1.1em; margin-top:8px;'>{gcfg_sel['emoji']} {gcfg_sel['label']}</p>"
                         f"</div>",
                         unsafe_allow_html=True
                     )
-                    time.sleep(0.25)
-                    st.rerun()
+                    st_autorefresh(interval=300, key="glearn_cd_tick")
 
                 else:
-                    # ÔöÇÔöÇ Capture ! ÔöÇÔöÇ
+                    # Décompte terminé → afficher camera_input
                     st.session_state.glearn_cd_start = None
-                    captured_frames = []
-                    if ctx_learn and ctx_learn.video_processor:
-                        with ctx_learn.video_processor.lock:
-                            captured_frames = list(ctx_learn.video_processor.frame_buffer)
+                    st.markdown(
+                        f"<div style='text-align:center; padding:12px; "
+                        f"border:3px solid #ff2222; border-radius:12px; background:#200000; margin-bottom:8px;'>"
+                        f"<b style='color:#ff2222; font-size:1.2em;'>📸 MAINTENANT — fais ton geste {gcfg_sel['emoji']} !</b>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                    snap = st.camera_input(
+                        f"{gcfg_sel['emoji']} {gcfg_sel['label']}",
+                        key=f"glearn_snap_{geste_sel}_{nb_deja}",
+                    )
+                    if snap is not None:
+                        pil_snap = Image.open(snap).convert("RGB")
+                        ok_g, msg_g = enregistrer_geste(pil_snap, geste_sel)
+                        st.session_state.glearn_msg = msg_g if ok_g else f"❌ {msg_g}"
+                        st.rerun()
 
-                    if captured_frames:
-                        # Vote sur les frames pour choisir la meilleure frame centrale
-                        mid = len(captured_frames) // 2
-                        frame_cap = captured_frames[mid]
-                        ok_g, msg_g = enregistrer_geste(frame_cap, geste_sel)
-                        st.session_state.glearn_msg = msg_g if ok_g else f"ÔØî {msg_g}"
-                    else:
-                        st.session_state.glearn_msg = "ÔØî Cam├®ra inactive ÔÇö lance la webcam d'abord !"
-                    st.rerun()
-
-            # ÔöÇÔöÇ Bouton d├®marrer d├®compte ÔöÇÔöÇ
             else:
-                nb_sel = len(db_gestes.get(geste_sel, []))
-                cd_box.markdown(
-                    f"<div style='text-align:center; padding:30px; "
+                # Repos : affichage neutre + bouton
+                nb_sel_l = len(db_gestes.get(geste_sel, []))
+                st.markdown(
+                    f"<div style='text-align:center; padding:36px 20px; "
                     f"border:2px dashed #444; border-radius:16px;'>"
-                    f"<div style='font-size:3em'>{gcfg_sel['emoji']}</div>"
-                    f"<p style='color:#aaa; margin:8px 0;'>{gcfg_sel['label']}</p>"
-                    f"<p style='color:#777; font-size:0.9em;'>{nb_sel} photo(s) enregistr├®e(s)</p>"
+                    f"<div style='font-size:3.5em; margin-bottom:6px;'>{gcfg_sel['emoji']}</div>"
+                    f"<p style='color:#aaa; margin:0;'>{gcfg_sel['label']}</p>"
+                    f"<p style='color:#777; font-size:0.9em; margin:6px 0 0;'>{nb_sel_l} photo(s) enregistrée(s)</p>"
                     f"</div>",
                     unsafe_allow_html=True
                 )
                 if st.button(
-                    f"­ƒô© Capturer dans 3 secondes ÔÇö {gcfg_sel['emoji']} {gcfg_sel['label']}",
+                    f"📸 Capturer dans 3 secondes — {gcfg_sel['emoji']} {gcfg_sel['label']}",
                     key="btn_capture_geste",
                     type="primary",
                     use_container_width=True,
@@ -1880,39 +1621,51 @@ with tab_007:
                     st.session_state.glearn_msg = ""
                     st.rerun()
 
-                # Message du dernier enregistrement
-                if st.session_state.glearn_msg:
-                    if "Ô£à" in st.session_state.glearn_msg:
-                        msg_box.success(st.session_state.glearn_msg)
-                    else:
-                        msg_box.error(st.session_state.glearn_msg)
-
-                # Bouton supprimer ce geste
-                nb_sel = len(db_gestes.get(geste_sel, []))
-                if nb_sel > 0:
-                    if st.button(
-                        f"­ƒùæ´©Å Supprimer toutes les photos de {gcfg_sel['label']} ({nb_sel})",
-                        key="btn_del_geste"
-                    ):
-                        db_g2 = charger_db_gestes()
-                        db_g2[geste_sel] = []
-                        sauvegarder_db_gestes(db_g2)
-                        st.session_state.glearn_msg = ""
-                        st.rerun()
+        with rcol:
+            nb_sel = len(db_gestes.get(geste_sel, []))
+            ok_nb  = nb_sel >= GESTURES_NB_MIN
+            st.markdown(
+                f"<div style='padding:22px; border:2px dashed {gcfg_sel['couleur']}; "
+                f"border-radius:16px; text-align:center;'>"
+                f"<div style='font-size:3em'>{gcfg_sel['emoji']}</div>"
+                f"<h3 style='color:{gcfg_sel['couleur']}; margin:8px 0'>{gcfg_sel['label']}</h3>"
+                f"<p style='color:#aaa; margin:0; font-size:0.95em;'>{gcfg_sel['desc']}</p>"
+                f"<hr style='border-color:#333; margin:12px 0;'>"
+                f"<p style='color:{'#4caf50' if ok_nb else '#888'}; margin:0;'>"
+                f"{nb_sel} photo(s) {'✅' if ok_nb else ('/ ' + str(GESTURES_NB_MIN) + ' minimum')}</p>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+            st.markdown("")
+            if st.session_state.glearn_msg:
+                if "✅" in st.session_state.glearn_msg:
+                    st.success(st.session_state.glearn_msg)
+                else:
+                    st.error(st.session_state.glearn_msg)
+            if nb_sel > 0:
+                if st.button(
+                    f"🗑️ Supprimer toutes les photos de {gcfg_sel['label']} ({nb_sel})",
+                    key="btn_del_geste"
+                ):
+                    db_g2 = charger_db_gestes()
+                    db_g2[geste_sel] = []
+                    sauvegarder_db_gestes(db_g2)
+                    st.session_state.glearn_msg = ""
+                    st.rerun()
 
         st.markdown("---")
-        if st.button("­ƒùæ´©Å R├®initialiser TOUS les gestes"):
+        if st.button("🗑️ Réinitialiser TOUS les gestes"):
             sauvegarder_db_gestes({})
             st.session_state.glearn_msg = ""
-            st.warning("Tous les gestes ont ├®t├® effac├®s.")
+            st.warning("Tous les gestes ont été effacés.")
             st.rerun()
 
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-    # SOUS-ONGLET B ÔÇô JEU
-    # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+    # ══════════════════════════════════════════
+    # SOUS-ONGLET B – JEU
+    # ══════════════════════════════════════════
     with sub_jeu007:
 
-        # ÔöÇÔöÇ Init session state 007 ÔöÇÔöÇ
+        # ── Init session state 007 ──
         for _k, _v in [
             ("g007_active",  False),
             ("g007_over",    False),
@@ -1936,9 +1689,9 @@ with tab_007:
         db_g = charger_db_gestes()
         gestes_prets = all(len(db_g.get(k, [])) >= GESTURES_NB_MIN for k in GESTURES_CONFIG)
 
-        # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-        # ├ëCRAN D'ACCUEIL
-        # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+        # ══════════════════════════════
+        # ÉCRAN D'ACCUEIL
+        # ══════════════════════════════
         if not st.session_state.g007_active and not st.session_state.g007_over:
             _g007_overlay["active"] = False
 
@@ -1947,7 +1700,7 @@ with tab_007:
                     f"{GESTURES_CONFIG[k]['emoji']} {GESTURES_CONFIG[k]['label']} ({len(db_g.get(k,[]))}/{GESTURES_NB_MIN})"
                     for k in GESTURES_CONFIG if len(db_g.get(k, [])) < GESTURES_NB_MIN
                 ]
-                st.warning("ÔÜá´©Å Enregistre d'abord tous tes gestes dans **­ƒôÜ 1. Apprendre les gestes** !")
+                st.warning("⚠️ Enregistre d'abord tous tes gestes dans **📚 1. Apprendre les gestes** !")
                 for m in manquants:
                     st.markdown(f"- {m}")
             else:
@@ -1955,20 +1708,20 @@ with tab_007:
                 nb_etats = len(qt)
                 st.markdown(f"""
                 <div style='text-align:center; padding:30px 20px;'>
-                    <h1 style='font-size:3em;'>­ƒö½ 007 DUEL !</h1>
+                    <h1 style='font-size:3em;'>🔫 007 DUEL !</h1>
                     <p style='font-size:1.2em; color:#aaa;'>
                         Affronte l'IA au jeu <b>007</b> !<br>
-                        Le compte ├á rebours s'affiche sur la cam├®ra ÔÇö tiens ton geste au <b style='color:#e94560;'>7</b> !<br><br>
-                        ­ƒñÖ <b>Recharger</b> &nbsp;┬À&nbsp; ­ƒö½ <b>Tirer</b> &nbsp;┬À&nbsp; ­ƒøí´©Å <b>Se prot├®ger</b><br><br>
-                        <b>3 vies chacun ÔÇö le premier ├á 0 perd !</b><br>
-                        <small style='color:#666;'>­ƒºá Q-table IA : {nb_etats} ├®tats appris</small>
+                        Le compte à rebours s'affiche sur la caméra — tiens ton geste au <b style='color:#e94560;'>7</b> !<br><br>
+                        🤙 <b>Recharger</b> &nbsp;·&nbsp; 🔫 <b>Tirer</b> &nbsp;·&nbsp; 🛡️ <b>Se protéger</b><br><br>
+                        <b>3 vies chacun — le premier à 0 perd !</b><br>
+                        <small style='color:#666;'>🧠 Q-table IA : {nb_etats} états appris</small>
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
 
                 _, cbtn, _ = st.columns([1, 2, 1])
                 with cbtn:
-                    if st.button("­ƒÜÇ LANCER LE DUEL !", type="primary", use_container_width=True):
+                    if st.button("🚀 LANCER LE DUEL !", type="primary", use_container_width=True):
                         st.session_state.g007_active    = True
                         st.session_state.g007_over      = False
                         st.session_state.g007_j_vies    = JEU007_VIES_MAX
@@ -1983,16 +1736,16 @@ with tab_007:
                         st.session_state.g007_pending   = None
                         st.rerun()
 
-                # ÔöÇÔöÇ Section entra├«nement auto-jeu ÔöÇÔöÇ
+                # ── Section entraînement auto-jeu ──
                 st.markdown("---")
-                st.markdown("#### ­ƒºá Entra├«ner le bot (auto-jeu)")
-                with st.expander("­ƒÅô Lancer une session d'auto-entra├«nement", expanded=False):
+                st.markdown("#### 🧠 Entraîner le bot (auto-jeu)")
+                with st.expander("🏓 Lancer une session d'auto-entraînement", expanded=False):
                     st.caption(
-                        "Le bot joue contre lui-m├¬me et met ├á jour sa Q-table. "
-                        "L'entra├«nement est **cumulatif** : relance autant que tu veux."
+                        "Le bot joue contre lui-même et met à jour sa Q-table. "
+                        "L'entraînement est **cumulatif** : relance autant que tu veux."
                     )
                     mode_train = st.radio(
-                        "Mode", ["Par nombre de parties", "Par dur├®e"],
+                        "Mode", ["Par nombre de parties", "Par durée"],
                         horizontal=True, key="train007_mode"
                     )
                     if mode_train == "Par nombre de parties":
@@ -2001,17 +1754,17 @@ with tab_007:
                             key="train007_nb"
                         )
                         duree_train_s = None
-                        label_spinner = f"­ƒÅï´©Å Entra├«nement sur {nb_parties_train} parties..."
+                        label_spinner = f"🏋️ Entraînement sur {nb_parties_train} parties..."
                     else:
                         duree_min = st.slider(
-                            "Dur├®e (minutes)", 1, 30, 5, step=1,
+                            "Durée (minutes)", 1, 30, 5, step=1,
                             key="train007_min"
                         )
                         nb_parties_train = None
                         duree_train_s    = duree_min * 60
-                        label_spinner    = f"­ƒÅï´©Å Entra├«nement pendant {duree_min} min..."
+                        label_spinner    = f"🏋️ Entraînement pendant {duree_min} min..."
 
-                    if st.button("ÔûÂ´©Å D├®marrer l'entra├«nement", key="train007_go", use_container_width=True):
+                    if st.button("▶️ Démarrer l'entraînement", key="train007_go", use_container_width=True):
                         with st.spinner(label_spinner):
                             qt_new, stats_t = s_entrainer_007(
                                 nb_parties=nb_parties_train,
@@ -2029,7 +1782,7 @@ with tab_007:
                             "duree_s":   duree_r,
                         }
 
-                    # Affichage persistant du dernier r├®sultat
+                    # Affichage persistant du dernier résultat
                     res_t = st.session_state.get("train007_result")
                     if res_t:
                         nb_t  = res_t["nb"]
@@ -2040,13 +1793,13 @@ with tab_007:
                         vps   = nb_t / dur_r if dur_r > 0 else 0
                         moy_tours = res_t["tours"] / max(nb_t, 1)
 
-                        # Dur├®e lisible
+                        # Durée lisible
                         if dur_r >= 60:
                             dur_str = f"{int(dur_r // 60)}min {int(dur_r % 60)}s"
                         else:
                             dur_str = f"{dur_r:.1f}s"
 
-                        # Barre de progression victoires/nuls/d├®faites (CSS)
+                        # Barre de progression victoires/nuls/défaites (CSS)
                         bar_v = f"width:{pct_v:.1f}%"
                         bar_n = f"width:{pct_n:.1f}%"
                         bar_d = f"width:{pct_d:.1f}%"
@@ -2054,12 +1807,12 @@ with tab_007:
                         st.markdown(f"""
 <div style='background:#0e1117; border:1px solid #2a2a3a; border-radius:16px;
             padding:22px 26px; margin-top:14px;'>
-  <h4 style='margin:0 0 16px 0; color:#eee;'>­ƒôè Rapport d'entra├«nement</h4>
+  <h4 style='margin:0 0 16px 0; color:#eee;'>📊 Rapport d'entraînement</h4>
 
   <div style='display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:18px;'>
     <div style='background:#1a1a2e; border-radius:10px; padding:12px; text-align:center;'>
       <div style='font-size:1.8em; font-weight:bold; color:#a78bfa;'>{nb_t:,}</div>
-      <div style='color:#888; font-size:.85em;'>parties jou├®es</div>
+      <div style='color:#888; font-size:.85em;'>parties jouées</div>
     </div>
     <div style='background:#1a1a2e; border-radius:10px; padding:12px; text-align:center;'>
       <div style='font-size:1.8em; font-weight:bold; color:#60a5fa;'>{vps:,.0f}</div>
@@ -2067,11 +1820,11 @@ with tab_007:
     </div>
     <div style='background:#1a1a2e; border-radius:10px; padding:12px; text-align:center;'>
       <div style='font-size:1.8em; font-weight:bold; color:#f0abfc;'>{dur_str}</div>
-      <div style='color:#888; font-size:.85em;'>dur├®e totale</div>
+      <div style='color:#888; font-size:.85em;'>durée totale</div>
     </div>
     <div style='background:#1a1a2e; border-radius:10px; padding:12px; text-align:center;'>
       <div style='font-size:1.8em; font-weight:bold; color:#34d399;'>{res_t["tours"]:,}</div>
-      <div style='color:#888; font-size:.85em;'>tours simul├®s</div>
+      <div style='color:#888; font-size:.85em;'>tours simulés</div>
     </div>
     <div style='background:#1a1a2e; border-radius:10px; padding:12px; text-align:center;'>
       <div style='font-size:1.8em; font-weight:bold; color:#fbbf24;'>{moy_tours:.1f}</div>
@@ -2079,11 +1832,11 @@ with tab_007:
     </div>
     <div style='background:#1a1a2e; border-radius:10px; padding:12px; text-align:center;'>
       <div style='font-size:1.8em; font-weight:bold; color:#38bdf8;'>{res_t["etats"]}</div>
-      <div style='color:#888; font-size:.85em;'>├®tats Q-table</div>
+      <div style='color:#888; font-size:.85em;'>états Q-table</div>
     </div>
   </div>
 
-  <div style='margin-bottom:6px; color:#aaa; font-size:.85em;'>R├®sultats IA (sym├®trie auto-jeu)</div>
+  <div style='margin-bottom:6px; color:#aaa; font-size:.85em;'>Résultats IA (symétrie auto-jeu)</div>
   <div style='display:flex; border-radius:8px; overflow:hidden; height:28px; margin-bottom:6px;'>
     <div style='{bar_v}; background:#16a34a; display:flex; align-items:center;
                 justify-content:center; font-size:.8em; font-weight:bold; color:#fff;
@@ -2096,36 +1849,36 @@ with tab_007:
                 min-width:30px; overflow:hidden;'>{pct_d:.0f}%</div>
   </div>
   <div style='display:flex; gap:18px; font-size:.82em; color:#888;'>
-    <span>­ƒƒ® Victoires {res_t["victoires"]:,}</span>
-    <span>Ô¼£ Nuls {res_t["nuls"]:,}</span>
-    <span>­ƒƒÑ D├®faites {res_t["defaites"]:,}</span>
+    <span>🟩 Victoires {res_t["victoires"]:,}</span>
+    <span>⬜ Nuls {res_t["nuls"]:,}</span>
+    <span>🟥 Défaites {res_t["defaites"]:,}</span>
   </div>
 </div>
                         """, unsafe_allow_html=True)
 
                         st.markdown("")
-                        if st.button("­ƒùæ´©Å Effacer le rapport", key="train007_clear"):
+                        if st.button("🗑️ Effacer le rapport", key="train007_clear"):
                             del st.session_state["train007_result"]
                             st.rerun()
 
-        # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-        # ├ëCRAN FIN DE PARTIE
-        # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+        # ══════════════════════════════
+        # ÉCRAN FIN DE PARTIE
+        # ══════════════════════════════
         elif st.session_state.g007_over:
             _g007_overlay["active"] = False
             j_vies  = st.session_state.g007_j_vies
             ia_vies = st.session_state.g007_ia_vies
 
             if j_vies > ia_vies:
-                titre, medal, couleur = "TU AS GAGN├ë !",   "­ƒÅå", "#4caf50"
+                titre, medal, couleur = "TU AS GAGNÉ !",   "🏆", "#4caf50"
                 st.balloons()
             elif ia_vies > j_vies:
-                titre, medal, couleur = "L'IA A GAGN├ë...", "­ƒñû", "#e94560"
+                titre, medal, couleur = "L'IA A GAGNÉ...", "🤖", "#e94560"
             else:
-                titre, medal, couleur = "├ëGALIT├ë !",       "­ƒñØ", "#ff9800"
+                titre, medal, couleur = "ÉGALITÉ !",       "🤝", "#ff9800"
 
-            hearts_j  = 'ÔØñ´©Å' * max(0, j_vies)  + '­ƒûñ' * max(0, JEU007_VIES_MAX - j_vies)
-            hearts_ia = 'ÔØñ´©Å' * max(0, ia_vies) + '­ƒûñ' * max(0, JEU007_VIES_MAX - ia_vies)
+            hearts_j  = '❤️' * max(0, j_vies)  + '🖤' * max(0, JEU007_VIES_MAX - j_vies)
+            hearts_ia = '❤️' * max(0, ia_vies) + '🖤' * max(0, JEU007_VIES_MAX - ia_vies)
             st.markdown(f"""
             <div style='text-align:center; padding:30px 0;'>
                 <h1 style='font-size:3.5em;'>{medal}</h1>
@@ -2135,9 +1888,9 @@ with tab_007:
             """, unsafe_allow_html=True)
 
             qt_fin = charger_qtable()
-            st.caption(f"­ƒºá Q-table IA mise ├á jour : **{len(qt_fin)} ├®tats**")
+            st.caption(f"🧠 Q-table IA mise à jour : **{len(qt_fin)} états**")
 
-            st.markdown("### ­ƒôï Historique des manches")
+            st.markdown("### 📋 Historique des manches")
             hist_data = []
             for i, h in enumerate(st.session_state.g007_history):
                 ia_cfg = GESTURES_CONFIG.get(h["ia_geste"], {})
@@ -2146,14 +1899,14 @@ with tab_007:
                     "#":         i + 1,
                     "Ton geste": f"{j_cfg.get('emoji','')} {j_cfg.get('label','?')} ({h.get('j_conf','?')})",
                     "Geste IA":  f"{ia_cfg.get('emoji','')} {ia_cfg.get('label','?')}",
-                    "R├®sultat":  h["res_txt"],
+                    "Résultat":  h["res_txt"],
                 })
             if hist_data:
                 st.dataframe(pd.DataFrame(hist_data), use_container_width=True, hide_index=True)
 
             _, cr, _ = st.columns([1, 2, 1])
             with cr:
-                if st.button("­ƒöä Rejouer !", type="primary", use_container_width=True):
+                if st.button("🔄 Rejouer !", type="primary", use_container_width=True):
                     for _k in ["g007_active", "g007_over", "g007_j_vies", "g007_ia_vies",
                                "g007_j_balles", "g007_ia_balles", "g007_manche",
                                "g007_history", "g007_last", "g007_phase", "g007_phase_t",
@@ -2162,9 +1915,9 @@ with tab_007:
                             del st.session_state[_k]
                     st.rerun()
 
-        # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+        # ══════════════════════════════
         # PARTIE EN COURS
-        # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+        # ══════════════════════════════
         else:
             j_vies    = st.session_state.g007_j_vies
             ia_vies   = st.session_state.g007_ia_vies
@@ -2174,14 +1927,14 @@ with tab_007:
             phase     = st.session_state.g007_phase
             elapsed   = time.time() - st.session_state.g007_phase_t
 
-            # ÔöÇÔöÇ Header vies / balles ÔöÇÔöÇ
+            # ── Header vies / balles ──
             hc1, hc2, hc3, hc4 = st.columns(4)
-            hc1.metric("ÔØñ´©Å Tes vies",   'ÔØñ´©Å' * j_vies  + '­ƒûñ' * (JEU007_VIES_MAX - j_vies))
-            hc2.metric("­ƒö½ Tes balles", f"{j_balles} / {JEU007_BALLES_MAX}")
-            hc3.metric("­ƒñû Vies IA",    'ÔØñ´©Å' * ia_vies + '­ƒûñ' * (JEU007_VIES_MAX - ia_vies))
-            hc4.metric("­ƒö½ Balles IA",  f"{ia_balles} / {JEU007_BALLES_MAX}")
+            hc1.metric("❤️ Tes vies",   '❤️' * j_vies  + '🖤' * (JEU007_VIES_MAX - j_vies))
+            hc2.metric("🔫 Tes balles", f"{j_balles} / {JEU007_BALLES_MAX}")
+            hc3.metric("🤖 Vies IA",    '❤️' * ia_vies + '🖤' * (JEU007_VIES_MAX - ia_vies))
+            hc4.metric("🔫 Balles IA",  f"{ia_balles} / {JEU007_BALLES_MAX}")
 
-            # ÔöÇÔöÇ Rappel des gestes ÔöÇÔöÇ
+            # ── Rappel des gestes ──
             gc1, gc2, gc3 = st.columns(3)
             for _col, (_key, _gcfg) in zip([gc1, gc2, gc3], GESTURES_CONFIG.items()):
                 _col.markdown(
@@ -2194,7 +1947,7 @@ with tab_007:
                 )
             st.markdown("")
 
-            # ÔöÇÔöÇ Webcam + r├®sultat c├┤te ├á c├┤te ÔöÇÔöÇ
+            # ── Webcam + résultat côte à côte ──
             wc1, wc2 = st.columns([1, 1], gap="large")
 
             with wc1:
@@ -2208,7 +1961,7 @@ with tab_007:
             with wc2:
                 res_box = st.empty()
 
-                # ÔöÇÔöÇ Phase R├ëSULTAT : affichage du dernier duel ÔöÇÔöÇ
+                # ── Phase RÉSULTAT : affichage du dernier duel ──
                 pending = st.session_state.g007_pending
                 if phase == "result" and pending:
                     j_cfg_r  = GESTURES_CONFIG.get(pending["j_geste"],  {})
@@ -2217,13 +1970,13 @@ with tab_007:
                     ia_touche_r = pending["ia_touche"]
 
                     if ia_touche_r and not j_touche_r:
-                        bg_r, titre_r = "#1a3a1a", "Ô£à IA TOUCH├ëE !"
+                        bg_r, titre_r = "#1a3a1a", "✅ IA TOUCHÉE !"
                         border_r = "#4caf50"
                     elif j_touche_r and not ia_touche_r:
-                        bg_r, titre_r = "#3a1a1a", "­ƒÆÑ TU ES TOUCH├ë(E) !"
+                        bg_r, titre_r = "#3a1a1a", "💥 TU ES TOUCHÉ(E) !"
                         border_r = "#e94560"
                     elif j_touche_r and ia_touche_r:
-                        bg_r, titre_r = "#3a2a00", "­ƒÆÑ DOUBLE TOUCHE !"
+                        bg_r, titre_r = "#3a2a00", "💥 DOUBLE TOUCHE !"
                         border_r = "#ff9800"
                     else:
                         bg_r, titre_r = "#1a1a2e", "= NEUTRE"
@@ -2243,7 +1996,7 @@ with tab_007:
                                 <span style='color:#aaa'>{j_cfg_r.get('label','?')}</span><br>
                                 <small style='color:#666'>{pending['j_conf']}</small>
                             </div>
-                            <div style='font-size:2em; align-self:center;'>ÔÜö´©Å</div>
+                            <div style='font-size:2em; align-self:center;'>⚔️</div>
                             <div>
                                 <div style='font-size:2.5em'>{ia_cfg_r.get('emoji','?')}</div>
                                 <b style='color:#ddd;'>IA</b><br>
@@ -2258,9 +2011,9 @@ with tab_007:
 
                 elif phase in ("c0a", "c0b", "c7"):
                     label_phase = {
-                        "c0a": ("0",   "­ƒÄ» Pr├®pare ton geste..."),
-                        "c0b": ("00",  "­ƒÄ» Pr├®pare ton geste..."),
-                        "c7":  ("007", "­ƒô© Tiens ton geste !"),
+                        "c0a": ("0",   "🎯 Prépare ton geste..."),
+                        "c0b": ("00",  "🎯 Prépare ton geste..."),
+                        "c7":  ("007", "📸 Tiens ton geste !"),
                     }[phase]
                     col_chiffre = "#ff4444" if phase == "c7" else "#ffa500"
                     res_box.markdown(f"""
@@ -2280,15 +2033,15 @@ with tab_007:
                     </div>
                     """, unsafe_allow_html=True)
 
-            # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ Logique des phases ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+            # ══════════ Logique des phases ══════════
 
-            # ÔöÇÔöÇ c0a : premier "0" ÔÇö attend que la cam├®ra soit pr├¬te ÔöÇÔöÇ
+            # ── c0a : premier "0" — attend que la caméra soit prête ──
             if phase == "c0a":
-                # V├®rifier si la cam├®ra a d├®j├á fourni un frame
+                # Vérifier si la caméra a déjà fourni un frame
                 cam_prete = (ctx_007 and ctx_007.video_processor
                              and ctx_007.video_processor.last_frame_pil is not None)
                 if not cam_prete:
-                    # Cam├®ra pas encore pr├¬te : r├®initialiser le chrono
+                    # Caméra pas encore prête : réinitialiser le chrono
                     st.session_state.g007_phase_t = time.time()
                     elapsed = 0.0
                 _g007_overlay.update({"active": True, "text": "0", "color": (255, 165, 0)})
@@ -2299,7 +2052,7 @@ with tab_007:
                 time.sleep(0.2)
                 st.rerun()
 
-            # ÔöÇÔöÇ c0b : deuxi├¿me "00" + pr├®-choix IA (0.7s) ÔöÇÔöÇ
+            # ── c0b : deuxième "00" + pré-choix IA (0.7s) ──
             elif phase == "c0b":
                 _g007_overlay.update({"active": True, "text": "00", "color": (255, 165, 0)})
                 if elapsed >= 0.7:
@@ -2315,7 +2068,7 @@ with tab_007:
                 time.sleep(0.2)
                 st.rerun()
 
-            # ÔöÇÔöÇ c7 : "007" + capture automatique (0.8s) ÔöÇÔöÇ
+            # ── c7 : "007" + capture automatique (0.8s) ──
             elif phase == "c7":
                 _g007_overlay.update({"active": True, "text": "007", "color": (255, 50, 50)})
                 if elapsed >= 0.8:
@@ -2328,19 +2081,19 @@ with tab_007:
                     if captured_frames:
                         j_geste, j_conf = reconnaitre_geste_vote(captured_frames)
                     else:
-                        j_geste, j_conf = None, "cam├®ra inactive"
+                        j_geste, j_conf = None, "caméra inactive"
 
                     if j_geste is None:
                         j_geste = random.choice(GESTES_KEYS)
-                        j_conf  = "non reconnu ÔÜá´©Å"
+                        j_conf  = "non reconnu ⚠️"
 
                     ia_geste = st.session_state.g007_ia_pre or random.choice(GESTES_KEYS)
 
-                    # R├®solution duel
+                    # Résolution duel
                     j_balles_new, ia_balles_new, j_vies_new, ia_vies_new, msgs, j_touche, ia_touche = \
                         resoudre_duel(j_geste, ia_geste, j_balles, ia_balles, j_vies, ia_vies)
 
-                    # Q-learning : r├®compense + mise ├á jour
+                    # Q-learning : récompense + mise à jour
                     reward_ia = calculer_reward_ia(
                         ia_geste, j_geste, ia_balles, j_balles,
                         ia_touche, j_touche, j_vies_new, ia_vies_new
@@ -2356,10 +2109,10 @@ with tab_007:
                         )
                         sauvegarder_qtable(qt_up)
 
-                    # R├®sultat texte
-                    if ia_touche and not j_touche:   res_txt = "­ƒñû IA touch├®e"
-                    elif j_touche and not ia_touche: res_txt = "­ƒÆÑ Joueur touch├®"
-                    elif j_touche and ia_touche:     res_txt = "­ƒÆÑ Double touche"
+                    # Résultat texte
+                    if ia_touche and not j_touche:   res_txt = "🤖 IA touchée"
+                    elif j_touche and not ia_touche: res_txt = "💥 Joueur touché"
+                    elif j_touche and ia_touche:     res_txt = "💥 Double touche"
                     else:                             res_txt = "= Neutre"
 
                     # Historique
@@ -2374,7 +2127,7 @@ with tab_007:
                         "j_conf":    j_conf,   "msgs":      msgs,
                         "j_touche":  j_touche, "ia_touche": ia_touche,
                     }
-                    # Mise ├á jour ├®tat
+                    # Mise à jour état
                     st.session_state.g007_j_vies    = j_vies_new
                     st.session_state.g007_ia_vies   = ia_vies_new
                     st.session_state.g007_j_balles  = j_balles_new
@@ -2387,7 +2140,7 @@ with tab_007:
                 time.sleep(0.2)
                 st.rerun()
 
-            # ÔöÇÔöÇ result : affichage r├®sultat (3s) ÔöÇÔöÇ
+            # ── result : affichage résultat (3s) ──
             elif phase == "result":
                 _g007_overlay["active"] = False
                 if elapsed >= 3.0:
