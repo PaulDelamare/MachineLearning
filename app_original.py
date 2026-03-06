@@ -1388,12 +1388,14 @@ with tab_visages:
         if reg_mode == "📷 Webcam":
             reg_photo = st.camera_input("Prends une photo de ton visage")
             if reg_photo:
+                reg_photo.seek(0)
                 reg_img = Image.open(reg_photo).convert("RGB")
                 st.image(reg_img, caption="Photo capturée", use_container_width=True)
         else:
             reg_file = st.file_uploader("Importe une photo", type=["jpg", "jpeg", "png"],
                                         key="reg_face_upload")
             if reg_file:
+                reg_file.seek(0)
                 reg_img = Image.open(reg_file).convert("RGB")
                 st.image(reg_img, caption=reg_file.name, use_container_width=True)
 
