@@ -1,0 +1,12 @@
+streamlit
+torch
+torchvision
+numpy
+pymongo
+pandas
+Pillow
+transformers
+streamlit-webrtc
+av
+facenet-pytorch
+tensorflow

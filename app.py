@@ -36,6 +36,39 @@ def load_model():
 classifier = load_model()
 
 # ─────────────────────────────────────────────
+# CHARGEMENT MODÈLE TENSORFLOW – MobileNetV2
+# ─────────────────────────────────────────────
+@st.cache_resource
+def load_tf_model():
+    try:
+        import tensorflow as tf
+        model      = tf.keras.applications.MobileNetV2(weights="imagenet")
+        preprocess = tf.keras.applications.mobilenet_v2.preprocess_input
+        decode     = tf.keras.applications.mobilenet_v2.decode_predictions
+        return model, preprocess, decode
+    except Exception:
+        return None, None, None
+
+_tf_model, _tf_preprocess, _tf_decode = load_tf_model()
+
+# ─────────────────────────────────────────────
+# TENSORFLOW FEATURE EXTRACTOR – embeddings (visages + gestes)
+# ─────────────────────────────────────────────
+@st.cache_resource
+def load_tf_extractor():
+    try:
+        import tensorflow as tf
+        model      = tf.keras.applications.MobileNetV2(
+            weights="imagenet", include_top=False, pooling="avg"
+        )
+        preprocess = tf.keras.applications.mobilenet_v2.preprocess_input
+        return model, preprocess
+    except Exception:
+        return None, None
+
+_tf_extractor, _tf_ext_prep = load_tf_extractor()
+
+# ─────────────────────────────────────────────
 # CONNEXION MONGODB
 # ─────────────────────────────────────────────
 @st.cache_resource
@@ -49,7 +82,8 @@ collection = db["images"]
 # ─────────────────────────────────────────────
 # RECONNAISSANCE FACIALE (FaceNet via facenet-pytorch)
 # ─────────────────────────────────────────────
-FACES_DB_FILE = "faces_db.pkl"
+FACES_DB_FILE    = "faces_db.pkl"
+FACES_DB_TF_FILE = "faces_db_tf.pkl"
 
 @st.cache_resource
 def load_face_models():
@@ -83,7 +117,7 @@ def get_embedding(pil_image):
         return None
 
 def enregistrer_visage(pil_image, nom):
-    """Ajoute un visage au registre."""
+    """Ajoute un visage au registre (FaceNet + TF MobileNetV2)."""
     emb = get_embedding(pil_image)
     if emb is None:
         return False, "⚠️ Aucun visage détecté dans l'image. Réessaie avec un visage bien visible."
@@ -92,35 +126,96 @@ def enregistrer_visage(pil_image, nom):
         faces_db[nom] = []
     faces_db[nom].append(emb)
     sauvegarder_db_visages(faces_db)
+    # Aussi enregistrer avec TF MobileNetV2
+    emb_tf = get_embedding_tf_face(pil_image)
+    if emb_tf is not None:
+        fdb_tf = charger_db_visages_tf()
+        if nom not in fdb_tf:
+            fdb_tf[nom] = []
+        fdb_tf[nom].append(emb_tf)
+        sauvegarder_db_visages_tf(fdb_tf)
     nb = len(faces_db[nom])
     return True, f"✅ Visage de **{nom}** enregistré ! ({nb} photo(s) au total)"
 
 def reconnaitre_visage(pil_image):
-    """Tente d'identifier la personne. Retourne (nom, confiance) ou (None, None)."""
+    """Identifie la personne via vote FaceNet + TF MobileNetV2."""
     faces_db = charger_db_visages()
     if not faces_db:
         return None, None
     emb = get_embedding(pil_image)
     if emb is None:
         return None, None
-    best_name, best_dist = None, float("inf")
+    # ── FaceNet ──
+    best_name_fn, best_dist_fn = None, float("inf")
     for nom, embeddings in faces_db.items():
         for known_emb in embeddings:
             dist = float(np.linalg.norm(emb - known_emb))
-            if dist < best_dist:
-                best_dist = dist
-                best_name = nom
-    # Seuil empirique : < 0.9 = bonne correspondance
-    if best_dist < 0.9:
-        confiance = max(0, int((1 - best_dist / 0.9) * 100))
-        return best_name, f"{confiance}%"
+            if dist < best_dist_fn:
+                best_dist_fn = dist
+                best_name_fn = nom
+    nom_facenet = best_name_fn if best_dist_fn < 0.9 else None
+    # ── TF MobileNetV2 ──
+    nom_tf = None
+    fdb_tf = charger_db_visages_tf()
+    if fdb_tf:
+        emb_tf = get_embedding_tf_face(pil_image)
+        if emb_tf is not None:
+            best_name_tf, best_dist_tf = None, float("inf")
+            for nom, embeddings in fdb_tf.items():
+                for known_emb in embeddings:
+                    dist = float(np.linalg.norm(emb_tf - known_emb))
+                    if dist < best_dist_tf:
+                        best_dist_tf = dist
+                        best_name_tf = nom
+            nom_tf = best_name_tf if best_dist_tf < 0.9 else None
+    # ── Vote majoritaire ──
+    if nom_facenet and nom_tf:
+        if nom_facenet == nom_tf:
+            conf = max(0, int((1 - best_dist_fn / 0.9) * 100))
+            return nom_facenet, f"{conf}% ✓ (FaceNet+TF)"
+        conf = max(0, int((1 - best_dist_fn / 0.9) * 100))
+        return nom_facenet, f"{conf}% (FaceNet)"
+    elif nom_facenet:
+        conf = max(0, int((1 - best_dist_fn / 0.9) * 100))
+        return nom_facenet, f"{conf}% (FaceNet)"
+    elif nom_tf:
+        return nom_tf, "~% (TF)"
     return None, None
+
+def charger_db_visages_tf():
+    if os.path.exists(FACES_DB_TF_FILE):
+        with open(FACES_DB_TF_FILE, "rb") as f:
+            return pickle.load(f)
+    return {}
+
+def sauvegarder_db_visages_tf(db):
+    with open(FACES_DB_TF_FILE, "wb") as f:
+        pickle.dump(db, f)
+
+def get_embedding_tf_face(pil_image):
+    """Embedding facial MobileNetV2 TF (1280-dim), détection visage via MTCNN."""
+    if _tf_extractor is None:
+        return None
+    try:
+        face_tensor = mtcnn_model(pil_image)
+        if face_tensor is None:
+            return None
+        face_np = ((face_tensor.permute(1, 2, 0).numpy() * 0.5 + 0.5) * 255).clip(0, 255).astype(np.uint8)
+        face_pil = Image.fromarray(face_np).resize((224, 224))
+        img_arr  = np.expand_dims(np.array(face_pil, dtype=np.float32), axis=0)
+        img_arr  = _tf_ext_prep(img_arr)
+        emb      = _tf_extractor.predict(img_arr, verbose=0)[0]
+        emb      = emb / (np.linalg.norm(emb) + 1e-8)
+        return emb
+    except Exception:
+        return None
 
 # ─────────────────────────────────────────────
 # JEU 007 – RECONNAISSANCE DE GESTES
 # ─────────────────────────────────────────────
-GESTURES_DB_FILE = "gestures_db.pkl"
-GESTURES_NB_MIN  = 3  # photos minimum par geste pour jouer
+GESTURES_DB_FILE    = "gestures_db.pkl"
+GESTURES_DB_TF_FILE = "gestures_db_tf.pkl"
+GESTURES_NB_MIN     = 3  # photos minimum par geste pour jouer
 
 GESTURES_CONFIG = {
     "recharger": {
@@ -174,7 +269,7 @@ def get_gesture_embedding(pil_image):
         return None
 
 def enregistrer_geste(pil_image, geste_key):
-    """Ajoute une photo d'exemple pour un geste."""
+    """Ajoute une photo d'exemple pour un geste (ViT + TF MobileNetV2)."""
     emb = get_gesture_embedding(pil_image)
     if emb is None:
         return False, "⚠️ Impossible d'analyser l'image."
@@ -183,34 +278,87 @@ def enregistrer_geste(pil_image, geste_key):
         db[geste_key] = []
     db[geste_key].append(emb)
     sauvegarder_db_gestes(db)
+    # TF MobileNetV2 embedding
+    emb_tf = get_gesture_embedding_tf(pil_image)
+    if emb_tf is not None:
+        db_tf = charger_db_gestes_tf()
+        if geste_key not in db_tf:
+            db_tf[geste_key] = []
+        db_tf[geste_key].append(emb_tf)
+        sauvegarder_db_gestes_tf(db_tf)
     nb = len(db[geste_key])
     cfg = GESTURES_CONFIG[geste_key]
     return True, f"✅ Geste **{cfg['label']}** enregistré ! ({nb} photo(s))"
 
 def reconnaitre_geste(pil_image):
-    """Identifie le geste. Retourne (geste_key, confiance_%) ou (None, None)."""
+    """Identifie le geste via vote ViT + TF MobileNetV2."""
     db = charger_db_gestes()
     if not db:
         return None, None
     emb = get_gesture_embedding(pil_image)
     if emb is None:
         return None, None
-    best_key, best_dist = None, float("inf")
+    # ── ViT ──
+    best_key_vit, best_dist_vit = None, float("inf")
     for key, embeddings in db.items():
         for known_emb in embeddings:
             dist = float(np.linalg.norm(emb - known_emb))
-            if dist < best_dist:
-                best_dist = dist
-                best_key = key
-    # Sur embeddings normalisés : dist < 0.55 ≈ cosine > 0.85 = bonne correspondance
-    if best_dist < 0.55:
-        confiance = max(0, int((1 - best_dist / 0.55) * 100))
-        return best_key, f"{confiance}%"
-    # Si distance élevée mais qu'on a tous les gestes, prend le plus proche quand même
-    # (avec faible confiance)
-    if best_key and len(db) == 3:
-        return best_key, "??%"
+            if dist < best_dist_vit:
+                best_dist_vit = dist
+                best_key_vit  = key
+    geste_vit = best_key_vit if best_dist_vit < 0.55 else None
+    # ── TF MobileNetV2 ──
+    geste_tf = None
+    db_tf = charger_db_gestes_tf()
+    if db_tf:
+        emb_tf = get_gesture_embedding_tf(pil_image)
+        if emb_tf is not None:
+            best_key_tf, best_dist_tf = None, float("inf")
+            for key, embeddings in db_tf.items():
+                for known_emb in embeddings:
+                    dist = float(np.linalg.norm(emb_tf - known_emb))
+                    if dist < best_dist_tf:
+                        best_dist_tf = dist
+                        best_key_tf  = key
+            geste_tf = best_key_tf if best_dist_tf < 0.6 else None
+    # ── Vote ──
+    if geste_vit and geste_tf:
+        if geste_vit == geste_tf:
+            conf = max(0, int((1 - best_dist_vit / 0.55) * 100))
+            return geste_vit, f"{conf}%"
+        return geste_vit, "??%"
+    elif geste_vit:
+        conf = max(0, int((1 - best_dist_vit / 0.55) * 100))
+        return geste_vit, f"{conf}%"
+    elif geste_tf:
+        return geste_tf, "??%"
+    if best_key_vit and len(db) == 3:
+        return best_key_vit, "??%"
     return None, None
+
+def charger_db_gestes_tf():
+    if os.path.exists(GESTURES_DB_TF_FILE):
+        with open(GESTURES_DB_TF_FILE, "rb") as f:
+            return pickle.load(f)
+    return {}
+
+def sauvegarder_db_gestes_tf(db):
+    with open(GESTURES_DB_TF_FILE, "wb") as f:
+        pickle.dump(db, f)
+
+def get_gesture_embedding_tf(pil_image):
+    """Embedding de geste MobileNetV2 TF (1280-dim normalisé)."""
+    if _tf_extractor is None:
+        return None
+    try:
+        img     = pil_image.resize((224, 224)).convert("RGB")
+        img_arr = np.expand_dims(np.array(img, dtype=np.float32), axis=0)
+        img_arr = _tf_ext_prep(img_arr)
+        emb     = _tf_extractor.predict(img_arr, verbose=0)[0]
+        emb     = emb / (np.linalg.norm(emb) + 1e-8)
+        return emb
+    except Exception:
+        return None
 
 
 def reconnaitre_geste_vote(frames: list):
@@ -808,6 +956,46 @@ def analyser_image(pil_image):
         "easter_egg": easter_egg,
     }
 
+
+def analyser_image_tf(pil_image):
+    """Analyse une image avec MobileNetV2 (TensorFlow/Keras) et retourne la catégorie TP."""
+    if _tf_model is None:
+        return None
+    import numpy as np
+    img        = pil_image.resize((224, 224)).convert("RGB")
+    img_array  = np.expand_dims(np.array(img, dtype=np.float32), axis=0)
+    img_array  = _tf_preprocess(img_array)
+    preds      = _tf_model.predict(img_array, verbose=0)
+    top5       = _tf_decode(preds, top=5)[0]   # [(id, nom, score), ...]
+
+    label_brut = top5[0][1].lower().replace("_", " ")
+    categorie     = "Inconnu"
+    label_reconnu = label_brut
+    score_reconnu = float(top5[0][2])
+
+    for _, class_name, score in top5:
+        lbl = class_name.lower().replace("_", " ")
+        if any(bl in lbl for bl in BLACKLIST_FLAT_IMAGE):
+            continue
+        for mot_cle, cat in CATEGORY_MAPPER.items():
+            pattern = r'\b' + re.escape(mot_cle) + r'\b'
+            if re.search(pattern, lbl):
+                categorie     = cat
+                label_reconnu = lbl
+                score_reconnu = float(score)
+                break
+        if categorie != "Inconnu":
+            break
+
+    return {
+        "label_brut":     label_brut,
+        "label_reconnu":  label_reconnu,
+        "score_pct":      f"{score_reconnu * 100:.2f}%",
+        "score_raw":      score_reconnu,
+        "categorie":      categorie,
+    }
+
+
 # ─────────────────────────────────────────────
 # PROCESSEUR VIDÉO TEMPS RÉEL (Webcam)
 # ─────────────────────────────────────────────
@@ -817,7 +1005,8 @@ _g007_overlay = {"active": False, "text": "", "color": (255, 200, 0)}
 
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
-        self.result = None
+        self.result    = None
+        self.result_tf = None
         self.frame_count = 0
         self.lock = threading.Lock()
         self.last_frame_pil = None   # dernière frame (pour détection caméra prête)
@@ -835,7 +1024,8 @@ class VideoProcessor(VideoProcessorBase):
 
         # Analyse 1 frame sur 60 (~toutes les 2s à 30fps)
         if self.frame_count % 60 == 0:
-            result = analyser_image(pil_current)
+            result    = analyser_image(pil_current)
+            result_tf = analyser_image_tf(pil_current)
             if result["categorie"] == "Humain":
                 nom_v, conf_v = reconnaitre_visage(pil_current)
                 result["nom_visage"] = nom_v
@@ -844,7 +1034,8 @@ class VideoProcessor(VideoProcessorBase):
                 result["nom_visage"] = None
                 result["conf_visage"] = None
             with self.lock:
-                self.result = result
+                self.result    = result
+                self.result_tf = result_tf
 
         # ── Overlay résultat catégorie ──
         with self.lock:
@@ -940,7 +1131,8 @@ with tab_analyse:
         if mode == "📷 Webcam (temps réel)":
             if ctx and ctx.state.playing and ctx.video_processor:
                 with ctx.video_processor.lock:
-                    live_result = ctx.video_processor.result
+                    live_result    = ctx.video_processor.result
+                    live_result_tf = ctx.video_processor.result_tf
 
                 if live_result:
                     cfg = CATEGORY_CONFIG.get(live_result["categorie"], CATEGORY_CONFIG["Inconnu"])
@@ -971,6 +1163,14 @@ with tab_analyse:
                         st.warning(live_result["easter_egg"])
                     else:
                         st.success(cfg["message"])
+
+                    if live_result_tf:
+                        cfg_tf_l = CATEGORY_CONFIG.get(live_result_tf["categorie"], CATEGORY_CONFIG["Inconnu"])
+                        accord   = live_result["categorie"] == live_result_tf["categorie"]
+                        st.caption(
+                            f"🔷 **TF MobileNetV2** → {cfg_tf_l['emoji']} {live_result_tf['categorie']} "
+                            f"({live_result_tf['score_pct']}) {'\u2705 accord ViT' if accord else '⚠️ diverge de ViT'}"
+                        )
 
                     st.markdown("---")
                     if st.button("💾 Sauvegarder cette détection dans MongoDB", type="primary"):
@@ -1048,6 +1248,46 @@ with tab_analyse:
                 st.warning(resultat["easter_egg"])
             else:
                 st.success(cfg["message"])
+
+            # ── Comparaison TensorFlow MobileNetV2 ──────────────────────
+            st.markdown("---")
+            st.subheader("🆚 Comparaison des modèles")
+            with st.spinner("Analyse TensorFlow / MobileNetV2 en cours..."):
+                resultat_tf = analyser_image_tf(pil_image)
+
+            if resultat_tf is None:
+                st.warning("⚠️ TensorFlow n'est pas disponible dans cet environnement.")
+            else:
+                cfg_tf  = CATEGORY_CONFIG.get(resultat_tf["categorie"], CATEGORY_CONFIG["Inconnu"])
+                cfg_vit = CATEGORY_CONFIG.get(resultat["categorie"],    CATEGORY_CONFIG["Inconnu"])
+
+                col_vit, col_tf = st.columns(2)
+                with col_vit:
+                    st.markdown("""
+                    <div style='background:#1a1a2e; border:2px solid #4f8ef7;
+                                border-radius:10px; padding:14px; text-align:center;'>
+                        <p style='color:#4f8ef7; font-weight:bold; margin:0 0 6px;'>🤖 ViT – HuggingFace / PyTorch</p>
+                    """, unsafe_allow_html=True)
+                    st.metric("Catégorie", f"{cfg_vit['emoji']} {resultat['categorie']}")
+                    st.metric("Confiance", resultat["score_pct"])
+                    st.caption(f"Label : `{resultat['label_reconnu']}`")
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+                with col_tf:
+                    st.markdown("""
+                    <div style='background:#1a2e1a; border:2px solid #f7a24f;
+                                border-radius:10px; padding:14px; text-align:center;'>
+                        <p style='color:#f7a24f; font-weight:bold; margin:0 0 6px;'>🔷 MobileNetV2 – TensorFlow / Keras</p>
+                    """, unsafe_allow_html=True)
+                    st.metric("Catégorie", f"{cfg_tf['emoji']} {resultat_tf['categorie']}")
+                    st.metric("Confiance", resultat_tf["score_pct"])
+                    st.caption(f"Label : `{resultat_tf['label_reconnu']}`")
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+                if resultat["categorie"] == resultat_tf["categorie"]:
+                    st.success(f"✅ Les deux modèles sont **d'accord** : **{resultat['categorie']}**")
+                else:
+                    st.warning(f"⚠️ Les modèles **divergent** : ViT → **{resultat['categorie']}** | TensorFlow → **{resultat_tf['categorie']}**")
         else:
             st.info("Prenez une photo ou uploadez une image à gauche pour lancer l'analyse.")
 
@@ -1248,10 +1488,12 @@ with tab_jeu:
 
         with gcol2:
             st.subheader("🎯 Détection en cours...")
-            game_result = None
+            game_result    = None
+            game_result_tf = None
             if ctx_game and ctx_game.state.playing and ctx_game.video_processor:
                 with ctx_game.video_processor.lock:
-                    game_result = ctx_game.video_processor.result
+                    game_result    = ctx_game.video_processor.result
+                    game_result_tf = ctx_game.video_processor.result_tf
 
             if game_result:
                 detected_cat = game_result["categorie"]
@@ -1276,6 +1518,14 @@ with tab_jeu:
                     st.markdown(f"**Détecté :** {cfg_det['emoji']} {detected_cat}")
                     st.caption(f"Label : `{game_result['label_reconnu']}` — {game_result['score_pct']}")
                     st.warning(f"Ce n'est pas ça... cherche un(e) **{defi['categorie']}** !")
+
+                if game_result_tf:
+                    cfg_tf_g = CATEGORY_CONFIG.get(game_result_tf["categorie"], CATEGORY_CONFIG["Inconnu"])
+                    accord_g = game_result["categorie"] == game_result_tf["categorie"]
+                    st.caption(
+                        f"🔷 TF MobileNetV2 : {cfg_tf_g['emoji']} **{game_result_tf['categorie']}** "
+                        f"({game_result_tf['score_pct']}) {'\u2705' if accord_g else '⚠️ diverge'}"
+                    )
 
                 # ── Victoire ──
                 if won and not st.session_state.game_round_won:
