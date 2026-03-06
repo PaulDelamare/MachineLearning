@@ -2027,31 +2027,44 @@ with tab_007:
                 """, unsafe_allow_html=True)
 
             elif phase == "c7":
-                wc1, wc2 = st.columns([1, 1], gap="large")
-                with wc1:
-                    st.markdown("""
-                    <div style='text-align:center; padding:8px;
-                                border:3px solid #ff4444; border-radius:12px;
-                                background:#200000; margin-bottom:6px;'>
-                        <b style='color:#ff4444; font-size:1.3em;'>📸 007 — MAINTENANT !</b>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    shot = st.camera_input(
-                        "Fais ton geste !",
-                        key=f"g007_shot_{manche}",
-                        label_visibility="collapsed",
-                    )
-                with wc2:
-                    t_restant = max(0, 9 - int(elapsed))
-                    col_t = "#ff4444" if t_restant <= 3 else "#ffa500"
-                    st.markdown(f"""
-                    <div style='text-align:center; padding:40px 20px;
-                                border:2px solid {col_t}; border-radius:16px;'>
-                        <p style='color:#aaa; margin:0 0 6px;'>Manche {manche}</p>
-                        <h1 style='font-size:5em; margin:0; color:{col_t};'>007</h1>
-                        <p style='color:{col_t}; margin:8px 0 0; font-size:1.1em;'>{t_restant}s</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                shot = st.camera_input(
+                    "Fais ton geste !",
+                    key=f"g007_shot_{manche}",
+                    label_visibility="collapsed",
+                )
+                # Overlay "007" sur la caméra via JS
+                t_restant = max(0, 9 - int(elapsed))
+                col_t = "#ff4444" if t_restant <= 3 else "#ff8800"
+                components.html(f"""
+                <script>
+                (function() {{
+                    var doc = window.parent.document;
+                    var old = doc.getElementById('g007-shot-ov');
+                    if (old) {{
+                        var sp = old.querySelector('.g007-txt');
+                        if (sp) sp.textContent = '007';
+                        var tm = old.querySelector('.g007-timer');
+                        if (tm) {{ tm.textContent = '{t_restant}s'; tm.style.color = '{col_t}'; }}
+                        return;
+                    }}
+                    var cam = doc.querySelector('[data-testid="stCameraInput"]');
+                    if (!cam) return;
+                    cam.style.position = 'relative';
+                    var ov = doc.createElement('div');
+                    ov.id = 'g007-shot-ov';
+                    ov.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:60px;'
+                                     + 'background:rgba(0,0,0,0.45);display:flex;flex-direction:column;'
+                                     + 'align-items:center;justify-content:center;'
+                                     + 'z-index:9999;border-radius:10px;pointer-events:none;';
+                    ov.innerHTML = '<span class="g007-txt" style="color:#ff4444;font-size:5em;'
+                                 + 'font-weight:900;letter-spacing:0.15em;'
+                                 + 'text-shadow:0 0 40px #ff4444;">007</span>'
+                                 + '<span class="g007-timer" style="color:{col_t};font-size:1.6em;'
+                                 + 'margin-top:4px;">{t_restant}s</span>';
+                    cam.appendChild(ov);
+                }})();
+                </script>
+                """, height=1, scrolling=False)
 
                 # Traitement : photo prise OU timeout 9s
                 if shot is not None or elapsed >= 9.0:
