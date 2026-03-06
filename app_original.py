@@ -1389,14 +1389,18 @@ with tab_visages:
         if reg_mode == "📷 Webcam":
             reg_photo = st.camera_input("Prends une photo de ton visage")
             if reg_photo:
-                reg_img = Image.open(io.BytesIO(reg_photo.getvalue())).convert("RGB")
-                st.image(reg_img, caption="Photo capturée", use_container_width=True)
+                _raw = reg_photo.getvalue()
+                if _raw:
+                    reg_img = Image.open(io.BytesIO(_raw)).convert("RGB")
+                    st.image(reg_img, caption="Photo capturée", use_container_width=True)
         else:
             reg_file = st.file_uploader("Importe une photo", type=["jpg", "jpeg", "png"],
                                         key="reg_face_upload")
             if reg_file:
-                reg_img = Image.open(io.BytesIO(reg_file.getvalue())).convert("RGB")
-                st.image(reg_img, caption=reg_file.name, use_container_width=True)
+                _raw = reg_file.getvalue()
+                if _raw:
+                    reg_img = Image.open(io.BytesIO(_raw)).convert("RGB")
+                    st.image(reg_img, caption=reg_file.name, use_container_width=True)
 
         if st.button("💾 Enregistrer ce visage", type="primary", disabled=(not nom_input or reg_img is None)):
             ok, msg = enregistrer_visage(reg_img, nom_input.strip())
