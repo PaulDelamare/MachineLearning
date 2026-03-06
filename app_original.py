@@ -1944,6 +1944,9 @@ with tab_007:
         # PARTIE EN COURS
         # ══════════════════════════════
         else:
+            # st_autorefresh pilote toutes les transitions sans time.sleep
+            st_autorefresh(interval=500, key="g007_tick")
+
             j_vies    = st.session_state.g007_j_vies
             ia_vies   = st.session_state.g007_ia_vies
             j_balles  = st.session_state.g007_j_balles
@@ -1972,159 +1975,107 @@ with tab_007:
                 )
             st.markdown("")
 
-            # ── Webcam + résultat côte à côte ──
-            wc1, wc2 = st.columns([1, 1], gap="large")
-
-            with wc1:
-                ctx_007 = webrtc_streamer(
-                    key="game007",
-                    video_processor_factory=VideoProcessor,
-                    media_stream_constraints={"video": True, "audio": False},
-                    async_processing=True,
-                )
-
-            with wc2:
-                res_box = st.empty()
-
-                # ── Phase RÉSULTAT : affichage du dernier duel ──
-                pending = st.session_state.g007_pending
-                if phase == "result" and pending:
-                    j_cfg_r  = GESTURES_CONFIG.get(pending["j_geste"],  {})
-                    ia_cfg_r = GESTURES_CONFIG.get(pending["ia_geste"], {})
-                    j_touche_r  = pending["j_touche"]
-                    ia_touche_r = pending["ia_touche"]
-
-                    if ia_touche_r and not j_touche_r:
-                        bg_r, titre_r = "#1a3a1a", "✅ IA TOUCHÉE !"
-                        border_r = "#4caf50"
-                    elif j_touche_r and not ia_touche_r:
-                        bg_r, titre_r = "#3a1a1a", "💥 TU ES TOUCHÉ(E) !"
-                        border_r = "#e94560"
-                    elif j_touche_r and ia_touche_r:
-                        bg_r, titre_r = "#3a2a00", "💥 DOUBLE TOUCHE !"
-                        border_r = "#ff9800"
-                    else:
-                        bg_r, titre_r = "#1a1a2e", "= NEUTRE"
-                        border_r = "#666"
-
-                    t_res  = 3.0
-                    prog_r = max(0.0, 1.0 - elapsed / t_res)
-
-                    res_box.markdown(f"""
-                    <div style='background:{bg_r}; border:3px solid {border_r}; border-radius:20px;
-                                padding:24px; text-align:center;'>
-                        <h2 style='color:{border_r}; margin:0 0 12px 0;'>{titre_r}</h2>
-                        <div style='display:flex; justify-content:space-around; margin:16px 0;'>
-                            <div>
-                                <div style='font-size:2.5em'>{j_cfg_r.get('emoji','?')}</div>
-                                <b style='color:#ddd;'>TOI</b><br>
-                                <span style='color:#aaa'>{j_cfg_r.get('label','?')}</span><br>
-                                <small style='color:#666'>{pending['j_conf']}</small>
-                            </div>
-                            <div style='font-size:2em; align-self:center;'>⚔️</div>
-                            <div>
-                                <div style='font-size:2.5em'>{ia_cfg_r.get('emoji','?')}</div>
-                                <b style='color:#ddd;'>IA</b><br>
-                                <span style='color:#aaa'>{ia_cfg_r.get('label','?')}</span>
-                            </div>
-                        </div>
-                        <hr style='border-color:#444; margin:10px 0;'>
-                        {''.join(f"<p style='color:#ccc; margin:4px 0;'>{m}</p>" for m in pending['msgs'])}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.progress(prog_r)
-
-                elif phase in ("c0a", "c0b", "c7"):
-                    label_phase = {
-                        "c0a": ("0",   "🎯 Prépare ton geste..."),
-                        "c0b": ("00",  "🎯 Prépare ton geste..."),
-                        "c7":  ("007", "📸 Tiens ton geste !"),
-                    }[phase]
-                    col_chiffre = "#ff4444" if phase == "c7" else "#ffa500"
-                    res_box.markdown(f"""
-                    <div style='text-align:center; padding:40px 20px;
-                                border:2px solid #333; border-radius:16px;'>
-                        <p style='color:#aaa; font-size:1.1em;'>{label_phase[1]}</p>
-                        <h1 style='font-size:4em; margin:0; color:{col_chiffre};
-                                   letter-spacing:0.12em;'>{label_phase[0]}</h1>
-                        <p style='color:#555;'>Manche {manche}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+            # ── Affichage selon phase ──
+            if phase == "result" and st.session_state.g007_pending:
+                pending  = st.session_state.g007_pending
+                j_cfg_r  = GESTURES_CONFIG.get(pending["j_geste"],  {})
+                ia_cfg_r = GESTURES_CONFIG.get(pending["ia_geste"], {})
+                j_touche_r  = pending["j_touche"]
+                ia_touche_r = pending["ia_touche"]
+                if ia_touche_r and not j_touche_r:
+                    bg_r, titre_r, border_r = "#1a3a1a", "✅ IA TOUCHÉE !",    "#4caf50"
+                elif j_touche_r and not ia_touche_r:
+                    bg_r, titre_r, border_r = "#3a1a1a", "💥 TU ES TOUCHÉ(E) !", "#e94560"
+                elif j_touche_r and ia_touche_r:
+                    bg_r, titre_r, border_r = "#3a2a00", "💥 DOUBLE TOUCHE !",  "#ff9800"
                 else:
-                    res_box.markdown("""
-                    <div style='text-align:center; padding:50px 20px;
-                                border:2px dashed #333; border-radius:16px;'>
-                        <p style='color:#555;'>En attente...</p>
+                    bg_r, titre_r, border_r = "#1a1a2e", "= NEUTRE",            "#666"
+                prog_r = max(0.0, 1.0 - elapsed / 3.0)
+                st.markdown(f"""
+                <div style='background:{bg_r}; border:3px solid {border_r}; border-radius:20px;
+                            padding:24px; text-align:center; max-width:520px; margin:auto;'>
+                    <h2 style='color:{border_r}; margin:0 0 12px 0;'>{titre_r}</h2>
+                    <div style='display:flex; justify-content:space-around; margin:16px 0;'>
+                        <div>
+                            <div style='font-size:2.5em'>{j_cfg_r.get('emoji','?')}</div>
+                            <b style='color:#ddd;'>TOI</b><br>
+                            <span style='color:#aaa'>{j_cfg_r.get('label','?')}</span><br>
+                            <small style='color:#666'>{pending['j_conf']}</small>
+                        </div>
+                        <div style='font-size:2em; align-self:center;'>⚔️</div>
+                        <div>
+                            <div style='font-size:2.5em'>{ia_cfg_r.get('emoji','?')}</div>
+                            <b style='color:#ddd;'>IA</b><br>
+                            <span style='color:#aaa'>{ia_cfg_r.get('label','?')}</span>
+                        </div>
+                    </div>
+                    <hr style='border-color:#444; margin:10px 0;'>
+                    {''.join(f"<p style='color:#ccc; margin:4px 0;'>{m}</p>" for m in pending['msgs'])}
+                </div>
+                """, unsafe_allow_html=True)
+                st.progress(prog_r)
+
+            elif phase in ("c0a", "c0b"):
+                label_txt = "0" if phase == "c0a" else "00"
+                st.markdown(f"""
+                <div style='text-align:center; padding:50px 20px;
+                            border:3px solid #ffa500; border-radius:20px;
+                            background:#1a1000; max-width:400px; margin:auto;'>
+                    <p style='color:#aaa; margin:0 0 8px;'>Manche {manche} — prépare ton geste !</p>
+                    <h1 style='font-size:7em; margin:0; color:#ffa500; letter-spacing:0.1em;'>{label_txt}</h1>
+                </div>
+                """, unsafe_allow_html=True)
+
+            elif phase == "c7":
+                wc1, wc2 = st.columns([1, 1], gap="large")
+                with wc1:
+                    st.markdown("""
+                    <div style='text-align:center; padding:8px;
+                                border:3px solid #ff4444; border-radius:12px;
+                                background:#200000; margin-bottom:6px;'>
+                        <b style='color:#ff4444; font-size:1.3em;'>📸 007 — MAINTENANT !</b>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    shot = st.camera_input(
+                        "Fais ton geste !",
+                        key=f"g007_shot_{manche}",
+                        label_visibility="collapsed",
+                    )
+                with wc2:
+                    t_restant = max(0, 9 - int(elapsed))
+                    col_t = "#ff4444" if t_restant <= 3 else "#ffa500"
+                    st.markdown(f"""
+                    <div style='text-align:center; padding:40px 20px;
+                                border:2px solid {col_t}; border-radius:16px;'>
+                        <p style='color:#aaa; margin:0 0 6px;'>Manche {manche}</p>
+                        <h1 style='font-size:5em; margin:0; color:{col_t};'>007</h1>
+                        <p style='color:{col_t}; margin:8px 0 0; font-size:1.1em;'>{t_restant}s</p>
                     </div>
                     """, unsafe_allow_html=True)
 
-            # ══════════ Logique des phases ══════════
-
-            # ── c0a : premier "0" — attend que la caméra soit prête ──
-            if phase == "c0a":
-                # Vérifier si la caméra a déjà fourni un frame
-                cam_prete = (ctx_007 and ctx_007.video_processor
-                             and ctx_007.video_processor.last_frame_pil is not None)
-                if not cam_prete:
-                    # Caméra pas encore prête : réinitialiser le chrono
-                    st.session_state.g007_phase_t = time.time()
-                    elapsed = 0.0
-                _g007_overlay.update({"active": True, "text": "0", "color": (255, 165, 0)})
-                if cam_prete and elapsed >= 0.7:
-                    st.session_state.g007_phase   = "c0b"
-                    st.session_state.g007_phase_t = time.time()
-                    st.rerun()
-                time.sleep(0.2)
-                st.rerun()
-
-            # ── c0b : deuxième "00" + pré-choix IA (0.7s) ──
-            elif phase == "c0b":
-                _g007_overlay.update({"active": True, "text": "00", "color": (255, 165, 0)})
-                if elapsed >= 0.7:
-                    qt_now = charger_qtable()
-                    st_now = etat_007(j_balles, ia_balles, j_vies, ia_vies)
-                    ia_pre = ia_choisit_geste(ia_balles, ia_vies, j_vies, st_now, qt_now)
-                    st.session_state.g007_ia_pre      = ia_pre
-                    st.session_state.g007_prev_state  = st_now
-                    st.session_state.g007_prev_action = GESTES_KEYS.index(ia_pre)
-                    st.session_state.g007_phase   = "c7"
-                    st.session_state.g007_phase_t = time.time()
-                    st.rerun()
-                time.sleep(0.2)
-                st.rerun()
-
-            # ── c7 : "007" + capture automatique (0.8s) ──
-            elif phase == "c7":
-                _g007_overlay.update({"active": True, "text": "007", "color": (255, 50, 50)})
-                if elapsed >= 0.8:
-                    # Vote multi-frames sur le buffer de la webcam (~30 frames = 1s)
-                    captured_frames = []
-                    if ctx_007 and ctx_007.video_processor:
-                        with ctx_007.video_processor.lock:
-                            captured_frames = list(ctx_007.video_processor.frame_buffer)
-
-                    if captured_frames:
-                        j_geste, j_conf = reconnaitre_geste_vote(captured_frames)
+                # Traitement : photo prise OU timeout 9s
+                if shot is not None or elapsed >= 9.0:
+                    if shot is not None:
+                        pil_shot = Image.open(shot).convert("RGB")
+                        j_geste, j_conf = reconnaitre_geste(pil_shot)
                     else:
-                        j_geste, j_conf = None, "caméra inactive"
+                        j_geste, j_conf = None, "temps écoulé ⏰"
 
                     if j_geste is None:
                         j_geste = random.choice(GESTES_KEYS)
-                        j_conf  = "non reconnu ⚠️"
+                        j_conf  = j_conf if shot is None else "non reconnu ⚠️"
 
                     ia_geste = st.session_state.g007_ia_pre or random.choice(GESTES_KEYS)
 
-                    # Résolution duel
-                    j_balles_new, ia_balles_new, j_vies_new, ia_vies_new, msgs, j_touche, ia_touche = \
+                    j_balles_n, ia_balles_n, j_vies_n, ia_vies_n, msgs, j_touche, ia_touche = \
                         resoudre_duel(j_geste, ia_geste, j_balles, ia_balles, j_vies, ia_vies)
 
-                    # Q-learning : récompense + mise à jour
                     reward_ia = calculer_reward_ia(
                         ia_geste, j_geste, ia_balles, j_balles,
-                        ia_touche, j_touche, j_vies_new, ia_vies_new
+                        ia_touche, j_touche, j_vies_n, ia_vies_n
                     )
                     qt_up   = charger_qtable()
-                    next_st = etat_007(j_balles_new, ia_balles_new, j_vies_new, ia_vies_new)
+                    next_st = etat_007(j_balles_n, ia_balles_n, j_vies_n, ia_vies_n)
                     if st.session_state.g007_prev_state is not None:
                         qt_up = ia_apprendre(
                             qt_up,
@@ -2134,51 +2085,53 @@ with tab_007:
                         )
                         sauvegarder_qtable(qt_up)
 
-                    # Résultat texte
-                    if ia_touche and not j_touche:   res_txt = "🤖 IA touchée"
-                    elif j_touche and not ia_touche: res_txt = "💥 Joueur touché"
-                    elif j_touche and ia_touche:     res_txt = "💥 Double touche"
-                    else:                             res_txt = "= Neutre"
+                    res_txt = ("🤖 IA touchée" if ia_touche and not j_touche else
+                               "💥 Joueur touché" if j_touche and not ia_touche else
+                               "💥 Double touche" if j_touche and ia_touche else "= Neutre")
 
-                    # Historique
                     st.session_state.g007_history.append({
-                        "j_geste":   j_geste,  "ia_geste":  ia_geste,
-                        "j_conf":    j_conf,   "res_txt":   res_txt,
-                        "j_touche":  j_touche, "ia_touche": ia_touche,
-                        "msgs":      msgs,
+                        "j_geste": j_geste, "ia_geste": ia_geste,
+                        "j_conf":  j_conf,  "res_txt":  res_txt,
+                        "j_touche": j_touche, "ia_touche": ia_touche, "msgs": msgs,
                     })
                     st.session_state.g007_pending = {
-                        "j_geste":   j_geste,  "ia_geste":  ia_geste,
-                        "j_conf":    j_conf,   "msgs":      msgs,
-                        "j_touche":  j_touche, "ia_touche": ia_touche,
+                        "j_geste": j_geste, "ia_geste": ia_geste,
+                        "j_conf":  j_conf,  "msgs": msgs,
+                        "j_touche": j_touche, "ia_touche": ia_touche,
                     }
-                    # Mise à jour état
-                    st.session_state.g007_j_vies    = j_vies_new
-                    st.session_state.g007_ia_vies   = ia_vies_new
-                    st.session_state.g007_j_balles  = j_balles_new
-                    st.session_state.g007_ia_balles = ia_balles_new
+                    st.session_state.g007_j_vies    = j_vies_n
+                    st.session_state.g007_ia_vies   = ia_vies_n
+                    st.session_state.g007_j_balles  = j_balles_n
+                    st.session_state.g007_ia_balles = ia_balles_n
                     st.session_state.g007_manche    = manche + 1
                     st.session_state.g007_phase     = "result"
                     st.session_state.g007_phase_t   = time.time()
-                    _g007_overlay["active"] = False
                     st.rerun()
-                time.sleep(0.2)
+
+            # ══ Transitions de phases ══
+            if phase == "c0a" and elapsed >= 1.5:
+                st.session_state.g007_phase   = "c0b"
+                st.session_state.g007_phase_t = time.time()
+                # pré-choix IA
+                qt_now = charger_qtable()
+                st_now = etat_007(j_balles, ia_balles, j_vies, ia_vies)
+                ia_pre = ia_choisit_geste(ia_balles, ia_vies, j_vies, st_now, qt_now)
+                st.session_state.g007_ia_pre      = ia_pre
+                st.session_state.g007_prev_state  = st_now
+                st.session_state.g007_prev_action = GESTES_KEYS.index(ia_pre)
                 st.rerun()
 
-            # ── result : affichage résultat (3s) ──
-            elif phase == "result":
-                _g007_overlay["active"] = False
-                if elapsed >= 3.0:
-                    if (st.session_state.g007_j_vies  <= 0 or
-                            st.session_state.g007_ia_vies <= 0):
-                        st.session_state.g007_active = False
-                        st.session_state.g007_over   = True
-                        st.rerun()
-                    else:
-                        st.session_state.g007_pending = None
-                        st.session_state.g007_phase   = "c0a"
-                        st.session_state.g007_phase_t = time.time()
-                        st.rerun()
-                time.sleep(0.3)
+            elif phase == "c0b" and elapsed >= 1.5:
+                st.session_state.g007_phase   = "c7"
+                st.session_state.g007_phase_t = time.time()
                 st.rerun()
 
+            elif phase == "result" and elapsed >= 3.0:
+                if st.session_state.g007_j_vies <= 0 or st.session_state.g007_ia_vies <= 0:
+                    st.session_state.g007_active = False
+                    st.session_state.g007_over   = True
+                else:
+                    st.session_state.g007_pending = None
+                    st.session_state.g007_phase   = "c0a"
+                    st.session_state.g007_phase_t = time.time()
+                st.rerun()
