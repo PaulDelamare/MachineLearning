@@ -6,6 +6,7 @@ import pickle
 from collections import deque
 import os
 import numpy as np
+import torch
 import streamlit as st
 import pymongo
 import pandas as pd
@@ -15,8 +16,6 @@ from transformers import pipeline
 from bson.objectid import ObjectId
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 import av
-import mediapipe as mp
-from streamlit_autorefresh import st_autorefresh
 
 # ─────────────────────────────────────────────
 # CONFIGURATION DE LA PAGE
@@ -28,81 +27,13 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-# CSS GLOBAL – supprime l'assombrissement lors des reruns
-# ─────────────────────────────────────────────
-st.markdown("""
-<style>
-/* Empêche Streamlit d'assombrir l'écran pendant les reruns (st_autorefresh, st.rerun) */
-[data-testid="stAppViewContainer"],
-[data-testid="stAppViewBlockContainer"],
-.stApp {
-    opacity: 1 !important;
-    transition: none !important;
-}
-/* Cache le petit indicateur "en cours d'exécution" en haut à droite */
-[data-testid="stStatusWidget"] { display: none !important; }
-/* Supprime le spinner de chargement qui peut clignoter */
-[data-testid="stSpinner"]      { display: none !important; }
-</style>
-""", unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# MODÈLE PRINCIPAL – ViT HuggingFace (meilleur)
+# CHARGEMENT DU MODÈLE (mis en cache)
 # ─────────────────────────────────────────────
 @st.cache_resource
 def load_model():
     return pipeline("image-classification", model="google/vit-base-patch16-224")
 
 classifier = load_model()
-
-# ─────────────────────────────────────────────
-# MODÈLE COMPARAISON – MobileNetV2 TensorFlow
-# ─────────────────────────────────────────────
-@st.cache_resource
-def load_tf_model():
-    try:
-        import tensorflow as tf
-        model      = tf.keras.applications.MobileNetV2(weights="imagenet")
-        preprocess = tf.keras.applications.mobilenet_v2.preprocess_input
-        decode     = tf.keras.applications.mobilenet_v2.decode_predictions
-        return model, preprocess, decode
-    except Exception:
-        return None, None, None
-
-_tf_model, _tf_preprocess, _tf_decode = load_tf_model()
-
-# ─────────────────────────────────────────────
-# TENSORFLOW FEATURE EXTRACTOR – embeddings (visages + gestes)
-# ─────────────────────────────────────────────
-@st.cache_resource
-def load_tf_extractor():
-    try:
-        import tensorflow as tf
-        model      = tf.keras.applications.MobileNetV2(
-            weights="imagenet", include_top=False, pooling="avg"
-        )
-        preprocess = tf.keras.applications.mobilenet_v2.preprocess_input
-        return model, preprocess
-    except Exception:
-        return None, None
-
-_tf_extractor, _tf_ext_prep = load_tf_extractor()
-
-# ─────────────────────────────────────────────
-# MEDIAPIPE HANDS – reconnaissance de gestes
-# ─────────────────────────────────────────────
-@st.cache_resource
-def load_mp_hands():
-    try:
-        return mp.solutions.hands.Hands(
-            static_image_mode=True,
-            max_num_hands=1,
-            min_detection_confidence=0.5,
-        )
-    except Exception:
-        return None
-
-_mp_hands = load_mp_hands()
 
 # ─────────────────────────────────────────────
 # CONNEXION MONGODB
@@ -116,17 +47,18 @@ db = client["visionai_db"]
 collection = db["images"]
 
 # ─────────────────────────────────────────────
-# RECONNAISSANCE FACIALE (MTCNN TensorFlow + MobileNetV2 TF)
+# RECONNAISSANCE FACIALE (FaceNet via facenet-pytorch)
 # ─────────────────────────────────────────────
 FACES_DB_FILE = "faces_db.pkl"
 
 @st.cache_resource
 def load_face_models():
-    """Charge le détecteur de visages MTCNN (TensorFlow)."""
-    from mtcnn import MTCNN
-    return MTCNN()
+    from facenet_pytorch import MTCNN, InceptionResnetV1
+    mtcnn = MTCNN(image_size=160, margin=20, keep_all=False, post_process=True)
+    resnet = InceptionResnetV1(pretrained="vggface2").eval()
+    return mtcnn, resnet
 
-mtcnn_model = load_face_models()
+mtcnn_model, resnet_model = load_face_models()
 
 def charger_db_visages():
     if os.path.exists(FACES_DB_FILE):
@@ -139,30 +71,19 @@ def sauvegarder_db_visages(db):
         pickle.dump(db, f)
 
 def get_embedding(pil_image):
-    """Détecte le visage via MTCNN (TF) et calcule l'embedding MobileNetV2 (TF)."""
-    if _tf_extractor is None:
-        return None
+    """Extrait l'embedding facial d'une image PIL. Retourne None si pas de visage."""
     try:
-        img_rgb = np.array(pil_image.convert("RGB"))
-        results = mtcnn_model.detect_faces(img_rgb)
-        if not results:
+        face_tensor = mtcnn_model(pil_image)
+        if face_tensor is None:
             return None
-        x, y, w, h = results[0]['box']
-        x, y = max(0, x), max(0, y)
-        face_crop = img_rgb[y:y+h, x:x+w]
-        if face_crop.size == 0:
-            return None
-        face_pil = Image.fromarray(face_crop).resize((224, 224))
-        img_arr  = np.expand_dims(np.array(face_pil, dtype=np.float32), axis=0)
-        img_arr  = _tf_ext_prep(img_arr)
-        emb      = _tf_extractor.predict(img_arr, verbose=0)[0]
-        emb      = emb / (np.linalg.norm(emb) + 1e-8)
-        return emb
+        with torch.no_grad():
+            emb = resnet_model(face_tensor.unsqueeze(0))
+        return emb[0].numpy()
     except Exception:
         return None
 
 def enregistrer_visage(pil_image, nom):
-    """Ajoute un visage au registre (MTCNN + MobileNetV2 TF)."""
+    """Ajoute un visage au registre."""
     emb = get_embedding(pil_image)
     if emb is None:
         return False, "⚠️ Aucun visage détecté dans l'image. Réessaie avec un visage bien visible."
@@ -175,7 +96,7 @@ def enregistrer_visage(pil_image, nom):
     return True, f"✅ Visage de **{nom}** enregistré ! ({nb} photo(s) au total)"
 
 def reconnaitre_visage(pil_image):
-    """Identifie la personne via MTCNN (TF) + MobileNetV2 (TF)."""
+    """Tente d'identifier la personne. Retourne (nom, confiance) ou (None, None)."""
     faces_db = charger_db_visages()
     if not faces_db:
         return None, None
@@ -185,15 +106,14 @@ def reconnaitre_visage(pil_image):
     best_name, best_dist = None, float("inf")
     for nom, embeddings in faces_db.items():
         for known_emb in embeddings:
-            if known_emb.shape != emb.shape:  # ignore embeddings d'une ancienne version
-                continue
             dist = float(np.linalg.norm(emb - known_emb))
             if dist < best_dist:
                 best_dist = dist
                 best_name = nom
-    if best_name and best_dist < 0.9:
-        conf = max(0, int((1 - best_dist / 0.9) * 100))
-        return best_name, f"{conf}% (TF)"
+    # Seuil empirique : < 0.9 = bonne correspondance
+    if best_dist < 0.9:
+        confiance = max(0, int((1 - best_dist / 0.9) * 100))
+        return best_name, f"{confiance}%"
     return None, None
 
 # ─────────────────────────────────────────────
@@ -237,111 +157,84 @@ def sauvegarder_db_gestes(db):
     with open(GESTURES_DB_FILE, "wb") as f:
         pickle.dump(db, f)
 
-def _landmark_to_vector(lm_list):
-    """
-    Convertit 21 landmarks MediaPipe en vecteur 63-dim normalisé.
-    Invariant en translation (centrée sur le poignet) et en échelle
-    (divisée par la distance poignet → base du majeur).
-    """
-    coords = np.array([[p.x, p.y, p.z] for p in lm_list], dtype=np.float32)
-    wrist  = coords[0].copy()
-    coords -= wrist                                        # centrage sur le poignet
-    scale   = float(np.linalg.norm(coords[9])) + 1e-8    # poignet → base du majeur
-    return (coords / scale).flatten()                     # 63 dims
-
-
-def get_gesture_landmark(pil_image):
-    """
-    Extrait les landmarks MediaPipe d'une main visible dans l'image.
-    Retourne un vecteur NumPy 63-dim normalisé, ou None si aucune main détectée.
-    Thread-safe grâce à _mp_lock.
-    """
-    if _mp_hands is None:
-        return None
+def get_gesture_embedding(pil_image):
+    """Extrait un embedding ViT 768-dim normalisé depuis le modèle déjà chargé."""
     try:
-        img = np.array(pil_image.resize((256, 256)).convert("RGB"))
-        with _mp_lock:
-            results = _mp_hands.process(img)
-        if not results.multi_hand_landmarks:
-            return None
-        return _landmark_to_vector(results.multi_hand_landmarks[0].landmark)
+        # Réutilise le processeur et le modèle du pipeline classifier
+        proc = getattr(classifier, "image_processor", None) or classifier.feature_extractor
+        inputs = proc(images=pil_image, return_tensors="pt")
+        with torch.no_grad():
+            outputs = classifier.model(**inputs, output_hidden_states=True)
+        # CLS token du dernier bloc Transformer = représentation globale
+        emb = outputs.hidden_states[-1][:, 0, :].squeeze().numpy()
+        # Normalise sur la sphère unité pour utiliser la distance L2 comme cosine
+        emb = emb / (np.linalg.norm(emb) + 1e-8)
+        return emb  # 768 dims
     except Exception:
         return None
 
-
-# Alias de compatibilité (si du code existant appelle get_gesture_embedding)
-get_gesture_embedding = get_gesture_landmark
-
-
 def enregistrer_geste(pil_image, geste_key):
-    """Ajoute une photo d'exemple pour un geste (landmarks MediaPipe)."""
-    vec = get_gesture_landmark(pil_image)
-    if vec is None:
-        return False, "⚠️ Aucune main détectée ! Montre ta main bien visible à la caméra, doigts déployés."
+    """Ajoute une photo d'exemple pour un geste."""
+    emb = get_gesture_embedding(pil_image)
+    if emb is None:
+        return False, "⚠️ Impossible d'analyser l'image."
     db = charger_db_gestes()
     if geste_key not in db:
         db[geste_key] = []
-    db[geste_key].append(vec)
+    db[geste_key].append(emb)
     sauvegarder_db_gestes(db)
-    nb  = len(db[geste_key])
+    nb = len(db[geste_key])
     cfg = GESTURES_CONFIG[geste_key]
     return True, f"✅ Geste **{cfg['label']}** enregistré ! ({nb} photo(s))"
 
-
 def reconnaitre_geste(pil_image):
-    """
-    Identifie le geste via les landmarks MediaPipe + distance L2.
-    Seuil empirique sur vecteurs normalisés : < 0.45 → bonne confiance.
-    """
+    """Identifie le geste. Retourne (geste_key, confiance_%) ou (None, None)."""
     db = charger_db_gestes()
     if not db:
         return None, None
-    vec = get_gesture_landmark(pil_image)
-    if vec is None:
-        return None, None   # main non visible
+    emb = get_gesture_embedding(pil_image)
+    if emb is None:
+        return None, None
     best_key, best_dist = None, float("inf")
-    for key, vecs in db.items():
-        for known in vecs:
-            if known.shape != vec.shape:
-                continue
-            d = float(np.linalg.norm(vec - known))
-            if d < best_dist:
-                best_dist = d
-                best_key  = key
-    if best_key and best_dist < 0.45:
-        conf = max(0, int((1 - best_dist / 0.45) * 100))
-        return best_key, f"{conf}%"
-    if best_key:       # fallback : retourne le plus proche même hors seuil
+    for key, embeddings in db.items():
+        for known_emb in embeddings:
+            dist = float(np.linalg.norm(emb - known_emb))
+            if dist < best_dist:
+                best_dist = dist
+                best_key = key
+    # Sur embeddings normalisés : dist < 0.55 ≈ cosine > 0.85 = bonne correspondance
+    if best_dist < 0.55:
+        confiance = max(0, int((1 - best_dist / 0.55) * 100))
+        return best_key, f"{confiance}%"
+    # Si distance élevée mais qu'on a tous les gestes, prend le plus proche quand même
+    # (avec faible confiance)
+    if best_key and len(db) == 3:
         return best_key, "??%"
     return None, None
 
 
 def reconnaitre_geste_vote(frames: list):
     """
-    Vote majoritaire sur N frames avec MediaPipe (CPU, très rapide).
-    Chaque frame est analysée séparément ; on retourne le geste majoritaire.
+    Vote majoritaire sur plusieurs frames pour une détection plus robuste.
+    Prend jusqu'à 9 frames réparties uniformément dans la liste fournie,
+    classifie chacune, et retourne le geste le plus voté avec un résumé.
     """
     if not frames:
         return None, "aucune frame"
-    db = charger_db_gestes()
-    if not db:
-        return None, "base vide"
-
-    step    = max(1, len(frames) // 7)
-    samples = list(frames)[::step][:7]
-
-    votes = {}
+    # Échantillonnage uniforme : max 9 frames
+    step     = max(1, len(frames) // 9)
+    samples  = list(frames)[::step][:9]
+    votes    = {}
     for pil in samples:
-        key, _ = reconnaitre_geste(pil)
-        if key:
-            votes[key] = votes.get(key, 0) + 1
-
+        g, _ = reconnaitre_geste(pil)
+        if g:
+            votes[g] = votes.get(g, 0) + 1
     if not votes:
-        return None, "main non détectée ⚠️"
+        return None, "non reconnu ⚠️"
     geste_final = max(votes, key=votes.get)
-    n_vote  = votes[geste_final]
-    n_total = len(samples)
-    return geste_final, f"{n_vote}/{n_total} ✓"
+    n_vote      = votes[geste_final]
+    n_total     = len(samples)
+    return geste_final, f"{n_vote}/{n_total} frames ✓"
 
 # ── Q-LEARNING 007 ──────────────────────────────────────────
 Q007_FILE    = "q_007.pkl"
@@ -870,7 +763,7 @@ for _d in DEFIS_POOL:
 # FONCTION D'ANALYSE
 # ─────────────────────────────────────────────
 def analyser_image(pil_image):
-    # Inférence ViT HuggingFace – top-5
+    # Récupère le top-5 pour maximiser les chances de trouver une catégorie
     resultats = classifier(pil_image, top_k=5)
     meilleur = resultats[0]
     label_brut = meilleur["label"].lower()
@@ -915,170 +808,20 @@ def analyser_image(pil_image):
         "easter_egg": easter_egg,
     }
 
-
-def analyser_image_tf(pil_image):
-    """Analyse une image avec MobileNetV2 (TensorFlow/Keras) et retourne la catégorie TP."""
-    if _tf_model is None:
-        return None
-    import numpy as np
-    img        = pil_image.resize((224, 224)).convert("RGB")
-    img_array  = np.expand_dims(np.array(img, dtype=np.float32), axis=0)
-    img_array  = _tf_preprocess(img_array)
-    preds      = _tf_model.predict(img_array, verbose=0)
-    top5       = _tf_decode(preds, top=5)[0]   # [(id, nom, score), ...]
-
-    label_brut = top5[0][1].lower().replace("_", " ")
-    categorie     = "Inconnu"
-    label_reconnu = label_brut
-    score_reconnu = float(top5[0][2])
-
-    for _, class_name, score in top5:
-        lbl = class_name.lower().replace("_", " ")
-        if any(bl in lbl for bl in BLACKLIST_FLAT_IMAGE):
-            continue
-        for mot_cle, cat in CATEGORY_MAPPER.items():
-            pattern = r'\b' + re.escape(mot_cle) + r'\b'
-            if re.search(pattern, lbl):
-                categorie     = cat
-                label_reconnu = lbl
-                score_reconnu = float(score)
-                break
-        if categorie != "Inconnu":
-            break
-
-    return {
-        "label_brut":     label_brut,
-        "label_reconnu":  label_reconnu,
-        "score_pct":      f"{score_reconnu * 100:.2f}%",
-        "score_raw":      score_reconnu,
-        "categorie":      categorie,
-    }
-
-
 # ─────────────────────────────────────────────
 # PROCESSEUR VIDÉO TEMPS RÉEL (Webcam)
 # ─────────────────────────────────────────────
 # Dictionnaire partagé entre le thread principal et VideoProcessor pour l'overlay 007
 _g007_overlay = {"active": False, "text": "", "color": (255, 200, 0)}
 
-# Lock thread-safe pour MediaPipe (non thread-safe nativement)
-_mp_lock = threading.Lock()
-
-# ──────────────────────────────────────────────
-# LIGHT VIDEO PROCESSOR  (gestes + 007 game)
-# Pas d'inférence ViT/TF → démarre instantanément
-# Dessine les landmarks MediaPipe en direct (feedback visuel)
-# ──────────────────────────────────────────────
-class LightVideoProcessor(VideoProcessorBase):
-    """
-    Processeur léger pour la webcam de capture de gestes et le jeu 007.
-    - Aucune inférence IA lourde en background
-    - Dessine les landmarks MediaPipe Hands en temps réel (~1 ms/frame)
-    - Buffer de frames pour la capture et le vote 007
-    """
-    def __init__(self):
-        self.lock           = threading.Lock()
-        self.last_frame_pil = None
-        self.frame_buffer   = deque(maxlen=60)  # ~2s à 30fps
-        # Instance MediaPipe propre à ce processeur (static_image_mode=False = mode vidéo rapide)
-        try:
-            self._hands = mp.solutions.hands.Hands(
-                static_image_mode=False,
-                max_num_hands=1,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5,
-            )
-            self._mp_draw = mp.solutions.drawing_utils
-            self._mp_styles = mp.solutions.drawing_styles
-        except Exception:
-            self._hands = None
-
-    def recv(self, frame):
-        img_rgb = frame.to_ndarray(format="rgb24")
-        pil_img = Image.fromarray(img_rgb)
-
-        with self.lock:
-            self.last_frame_pil = pil_img
-            self.frame_buffer.append(pil_img)
-
-        # ── Overlay compte à rebours 007 ──
-        if _g007_overlay["active"] and _g007_overlay["text"]:
-            pil_draw = pil_img.copy()
-            draw = ImageDraw.Draw(pil_draw)
-            h, w = img_rgb.shape[:2]
-            txt  = _g007_overlay["text"]
-            col  = _g007_overlay["color"]
-            try:
-                font_size = {1: 160, 2: 150}.get(len(txt), 130)
-                font_big  = ImageFont.truetype("arial.ttf", font_size)
-            except Exception:
-                font_big = ImageFont.load_default()
-            try:
-                bb = draw.textbbox((0, 0), txt, font=font_big)
-                tw, th = bb[2] - bb[0], bb[3] - bb[1]
-            except Exception:
-                tw, th = 100, 100
-            x, y = (w - tw) // 2, (h - th) // 2 - 20
-            draw.text((x + 4, y + 4), txt, fill=(0, 0, 0), font=font_big)
-            draw.text((x, y),         txt, fill=col,       font=font_big)
-            return av.VideoFrame.from_ndarray(np.array(pil_draw), format="rgb24")
-
-        # ── Overlay MediaPipe Hands (mode capture gestes) ──
-        if self._hands is not None:
-            try:
-                results = self._hands.process(img_rgb)
-                if results.multi_hand_landmarks:
-                    # Dessin du squelette via MediaPipe (travaille en numpy RGB)
-                    annotated = img_rgb.copy()
-                    for hl in results.multi_hand_landmarks:
-                        self._mp_draw.draw_landmarks(
-                            annotated, hl,
-                            mp.solutions.hands.HAND_CONNECTIONS,
-                            self._mp_styles.get_default_hand_landmarks_style(),
-                            self._mp_styles.get_default_hand_connections_style(),
-                        )
-                    # Bandeau vert en bas via PIL pour garder RGB propre
-                    pil_ann = Image.fromarray(annotated)
-                    draw_ann = ImageDraw.Draw(pil_ann)
-                    h_a, w_a = annotated.shape[:2]
-                    draw_ann.rectangle([(0, h_a - 36), (w_a, h_a)], fill=(0, 120, 0))
-                    draw_ann.text((10, h_a - 28), "✓ Main détectée",
-                                  fill=(100, 255, 100))
-                    return av.VideoFrame.from_ndarray(np.array(pil_ann), format="rgb24")
-            except Exception:
-                pass
-
-        return frame  # aucune modification si pas de landmarks
-
 
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
-        self.result    = None
-        self.result_tf = None
+        self.result = None
         self.frame_count = 0
         self.lock = threading.Lock()
         self.last_frame_pil = None   # dernière frame (pour détection caméra prête)
         self.frame_buffer   = deque(maxlen=30)  # ~1s à 30fps pour vote multi-frames
-
-    def _analyse_background(self, pil_image):
-        """Lançé dans un thread pour ne pas bloquer recv()."""
-        try:
-            result    = analyser_image(pil_image)
-            result_tf = analyser_image_tf(pil_image)
-            if result["categorie"] == "Humain":
-                nom_v, conf_v = reconnaitre_visage(pil_image)
-                result["nom_visage"]  = nom_v
-                result["conf_visage"] = conf_v
-            else:
-                result["nom_visage"]  = None
-                result["conf_visage"] = None
-            with self.lock:
-                self.result    = result
-                self.result_tf = result_tf
-                self._analysing = False
-        except Exception:
-            with self.lock:
-                self._analysing = False
 
     def recv(self, frame):
         img_array = frame.to_ndarray(format="rgb24")
@@ -1089,15 +832,19 @@ class VideoProcessor(VideoProcessorBase):
         with self.lock:
             self.last_frame_pil = pil_current
             self.frame_buffer.append(pil_current)
-            already_analysing = getattr(self, "_analysing", False)
 
-        # Lance l’analyse en background (une seule à la fois) toutes les ~60 frames
-        # Suspendue pendant le jeu 007 pour libérer le modèle TF
-        if self.frame_count % 60 == 0 and not already_analysing and not _g007_overlay["active"]:
+        # Analyse 1 frame sur 60 (~toutes les 2s à 30fps)
+        if self.frame_count % 60 == 0:
+            result = analyser_image(pil_current)
+            if result["categorie"] == "Humain":
+                nom_v, conf_v = reconnaitre_visage(pil_current)
+                result["nom_visage"] = nom_v
+                result["conf_visage"] = conf_v
+            else:
+                result["nom_visage"] = None
+                result["conf_visage"] = None
             with self.lock:
-                self._analysing = True
-            t = threading.Thread(target=self._analyse_background, args=(pil_current,), daemon=True)
-            t.start()
+                self.result = result
 
         # ── Overlay résultat catégorie ──
         with self.lock:
@@ -1168,19 +915,20 @@ with tab_analyse:
 
         image_source = None
         uploaded_file = None
-        pil_image     = None
+        ctx = None
 
         if mode == "📷 Webcam (temps réel)":
-            st.caption("📸 Pointe ta caméra vers l'objet et prends une photo — résultat immédiat, sans cliquer sur Start !")
-            webcam_snap = st.camera_input("Prendre une photo", key="analyse_webcam")
-            if webcam_snap is not None:
-                pil_image    = Image.open(webcam_snap).convert("RGB")
-                image_source = {"name": "webcam.jpg", "size": len(webcam_snap.getvalue())}
-                st.image(pil_image, caption="Photo webcam", use_container_width=True)
+            st.caption("⚡ La catégorie s'affiche sur la vidéo. Cliquez START pour lancer.")
+            ctx = webrtc_streamer(
+                key="visionai-live",
+                video_processor_factory=VideoProcessor,
+                media_stream_constraints={"video": True, "audio": False},
+                async_processing=True,
+            )
         else:
             uploaded_file = st.file_uploader("Choisissez un fichier image", type=["png", "jpg", "jpeg", "webp"])
             if uploaded_file is not None:
-                pil_image    = Image.open(uploaded_file).convert("RGB")
+                pil_image = Image.open(uploaded_file).convert("RGB")
                 image_source = {"name": uploaded_file.name, "size": uploaded_file.size}
                 st.image(pil_image, caption=uploaded_file.name, use_container_width=True)
                 st.caption(f"Taille : {image_source['size']} octets")
@@ -1188,10 +936,65 @@ with tab_analyse:
     with zone_resultat:
         st.subheader("🧠 Résultat de l'Analyse")
 
-        # ── WEBCAM (snapshot) ou FICHIER — même pipeline ──
-        if mode == "📷 Webcam (temps réel)" and image_source is None:
-            st.info("📸 Prends une photo à gauche pour lancer l'analyse.")
+        # ── MODE WEBCAM TEMPS RÉEL ──
+        if mode == "📷 Webcam (temps réel)":
+            if ctx and ctx.state.playing and ctx.video_processor:
+                with ctx.video_processor.lock:
+                    live_result = ctx.video_processor.result
 
+                if live_result:
+                    cfg = CATEGORY_CONFIG.get(live_result["categorie"], CATEGORY_CONFIG["Inconnu"])
+
+                    # ── Nom reconnu ? ──
+                    nom_reconnu = live_result.get("nom_visage")
+                    conf_visage = live_result.get("conf_visage")
+                    if nom_reconnu:
+                        st.markdown(f"""
+                        <div style='background:#1a3a1a; border:2px solid #4caf50; border-radius:12px;
+                                    padding:12px 20px; text-align:center; margin-bottom:8px;'>
+                            <span style='font-size:1.8em'>👋</span>
+                            <h3 style='color:#4caf50; margin:4px 0;'>Bonjour <b>{nom_reconnu}</b> !</h3>
+                            <p style='color:#aaa; margin:0;'>Confiance visage : {conf_visage}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"## {cfg['emoji']} {live_result['categorie']}")
+                        if live_result["categorie"] == "Humain":
+                            st.caption("👤 Visage non reconnu — enregistre-toi dans **👥 Reconnaissances de visages** !")
+
+                    c1, c2 = st.columns(2)
+                    c1.metric("Catégorie détectée", live_result["categorie"])
+                    c2.metric("Confiance", live_result["score_pct"])
+                    st.info(f"Label : `{live_result['label_reconnu']}`")
+                    if live_result["easter_egg"]:
+                        st.balloons()
+                        st.warning(live_result["easter_egg"])
+                    else:
+                        st.success(cfg["message"])
+
+                    st.markdown("---")
+                    if st.button("💾 Sauvegarder cette détection dans MongoDB", type="primary"):
+                        try:
+                            collection.insert_one({
+                                "date": datetime.now(),
+                                "nom": "webcam_live.jpg",
+                                "taille": 0,
+                                "analyse": {
+                                    "taux_reussite": live_result["score_pct"],
+                                    "type_reconnu": live_result["categorie"],
+                                    "label_brut": live_result["label_brut"],
+                                    "label_reconnu": live_result["label_reconnu"],
+                                }
+                            })
+                            st.success("✅ Sauvegardé dans MongoDB !")
+                        except Exception as e:
+                            st.error(f"Erreur MongoDB : {e}")
+                else:
+                    st.info("⏳ En attente de la première analyse... (environ 2 secondes après START)")
+            else:
+                st.info("▶️ Cliquez sur START dans le flux vidéo pour lancer la détection en temps réel.")
+
+        # ── MODE FICHIER ──
         elif image_source is not None:
             with st.spinner("Analyse en cours par le modèle ViT..."):
                 resultat = analyser_image(pil_image)
@@ -1245,46 +1048,6 @@ with tab_analyse:
                 st.warning(resultat["easter_egg"])
             else:
                 st.success(cfg["message"])
-
-            # ── Comparaison TensorFlow MobileNetV2 ──────────────────────
-            st.markdown("---")
-            st.subheader("🆚 Comparaison des modèles")
-            with st.spinner("Analyse TensorFlow / MobileNetV2 en cours..."):
-                resultat_tf = analyser_image_tf(pil_image)
-
-            if resultat_tf is None:
-                st.warning("⚠️ TensorFlow n'est pas disponible dans cet environnement.")
-            else:
-                cfg_tf  = CATEGORY_CONFIG.get(resultat_tf["categorie"], CATEGORY_CONFIG["Inconnu"])
-                cfg_vit = CATEGORY_CONFIG.get(resultat["categorie"],    CATEGORY_CONFIG["Inconnu"])
-
-                col_vit, col_tf = st.columns(2)
-                with col_vit:
-                    st.markdown("""
-                    <div style='background:#1a1a2e; border:2px solid #4f8ef7;
-                                border-radius:10px; padding:14px; text-align:center;'>
-                        <p style='color:#4f8ef7; font-weight:bold; margin:0 0 6px;'>🤖 ViT – HuggingFace / PyTorch</p>
-                    """, unsafe_allow_html=True)
-                    st.metric("Catégorie", f"{cfg_vit['emoji']} {resultat['categorie']}")
-                    st.metric("Confiance", resultat["score_pct"])
-                    st.caption(f"Label : `{resultat['label_reconnu']}`")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                with col_tf:
-                    st.markdown("""
-                    <div style='background:#1a2e1a; border:2px solid #f7a24f;
-                                border-radius:10px; padding:14px; text-align:center;'>
-                        <p style='color:#f7a24f; font-weight:bold; margin:0 0 6px;'>🔷 MobileNetV2 – TensorFlow / Keras</p>
-                    """, unsafe_allow_html=True)
-                    st.metric("Catégorie", f"{cfg_tf['emoji']} {resultat_tf['categorie']}")
-                    st.metric("Confiance", resultat_tf["score_pct"])
-                    st.caption(f"Label : `{resultat_tf['label_reconnu']}`")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                if resultat["categorie"] == resultat_tf["categorie"]:
-                    st.success(f"✅ Les deux modèles sont **d'accord** : **{resultat['categorie']}**")
-                else:
-                    st.warning(f"⚠️ Les modèles **divergent** : ViT → **{resultat['categorie']}** | TensorFlow → **{resultat_tf['categorie']}**")
         else:
             st.info("Prenez une photo ou uploadez une image à gauche pour lancer l'analyse.")
 
@@ -1315,7 +1078,7 @@ with tab_analyse:
 
         st.markdown("### 📊 Répartition des catégories détectées")
         comptage = df["Catégorie"].value_counts().reset_index()
-        comptage.columns = ["Catégorie", "Nombre d analyses"]
+        comptage.columns = ["Catégorie", "Nombre d'analyses"]
         st.bar_chart(data=comptage.set_index("Catégorie"))
 
         st.markdown("### 🗑️ Supprimer un enregistrement")
@@ -1354,7 +1117,6 @@ with tab_jeu:
         ("game_active", False), ("game_over", False), ("game_round", 1),
         ("game_score", 0), ("game_history", []), ("game_defi_order", []),
         ("game_start_time", 0.0), ("game_round_won", False),
-        ("game_snap_result", None), ("game_snap_result_tf", None), ("game_snap_round", -1),
     ]:
         if _key not in st.session_state:
             st.session_state[_key] = _val
@@ -1476,21 +1238,20 @@ with tab_jeu:
         gcol1, gcol2 = st.columns([1, 1], gap="large")
 
         with gcol1:
-            st.caption("� Montre l'objet à la caméra et prends une photo — pas besoin de cliquer Start !")
-            game_snap = st.camera_input("📷 Prendre une photo", key=f"game_snap_{st.session_state.game_round}")
-            if game_snap is not None and st.session_state.game_snap_round != st.session_state.game_round:
-                pil_gsnap = Image.open(game_snap).convert("RGB")
-                with st.spinner("Analyse en cours..."):
-                    st.session_state.game_snap_result    = analyser_image(pil_gsnap)
-                    st.session_state.game_snap_result_tf = analyser_image_tf(pil_gsnap)
-                    st.session_state.game_snap_round     = st.session_state.game_round
-                st.rerun()
+            st.caption("📷 Lance la caméra et pointe-la vers l'objet !")
+            ctx_game = webrtc_streamer(
+                key="game-webcam",
+                video_processor_factory=VideoProcessor,
+                media_stream_constraints={"video": True, "audio": False},
+                async_processing=True,
+            )
 
         with gcol2:
             st.subheader("🎯 Détection en cours...")
-            _snap_ok    = st.session_state.game_snap_round == st.session_state.game_round
-            game_result    = st.session_state.game_snap_result    if _snap_ok else None
-            game_result_tf = st.session_state.game_snap_result_tf if _snap_ok else None
+            game_result = None
+            if ctx_game and ctx_game.state.playing and ctx_game.video_processor:
+                with ctx_game.video_processor.lock:
+                    game_result = ctx_game.video_processor.result
 
             if game_result:
                 detected_cat = game_result["categorie"]
@@ -1515,15 +1276,6 @@ with tab_jeu:
                     st.markdown(f"**Détecté :** {cfg_det['emoji']} {detected_cat}")
                     st.caption(f"Label : `{game_result['label_reconnu']}` — {game_result['score_pct']}")
                     st.warning(f"Ce n'est pas ça... cherche un(e) **{defi['categorie']}** !")
-
-                if game_result_tf:
-                    cfg_tf_g   = CATEGORY_CONFIG.get(game_result_tf["categorie"], CATEGORY_CONFIG["Inconnu"])
-                    accord_g   = game_result["categorie"] == game_result_tf["categorie"]
-                    accord_g_txt = "✅" if accord_g else "⚠️ diverge"
-                    st.caption(
-                        f"🔷 TF MobileNetV2 : {cfg_tf_g['emoji']} **{game_result_tf['categorie']}** "
-                        f"({game_result_tf['score_pct']}) {accord_g_txt}"
-                    )
 
                 # ── Victoire ──
                 if won and not st.session_state.game_round_won:
@@ -1557,7 +1309,7 @@ with tab_jeu:
                         st.session_state.game_round_won = False
                     st.rerun()
             else:
-                st.info("📸 Prends une photo à gauche de l'objet demandé !")
+                st.info("⏳ Lance la caméra et pointe-la vers l'objet !")
 
         # ── Temps écoulé ──
         if remaining <= 0 and not st.session_state.game_round_won:
@@ -1608,7 +1360,8 @@ with tab_jeu:
 
         # ── Auto-refresh chrono (toutes les 0.8s) ──
         if st.session_state.game_active and not st.session_state.game_round_won:
-            st_autorefresh(interval=800, key="game_chrono")
+            time.sleep(0.8)
+            st.rerun()
 
 
 # ══════════════════════════════════════════════
@@ -1748,13 +1501,11 @@ with tab_007:
         )
         st.markdown("---")
 
-        # ── Init session state ──
+        # ── Init session state décompte ──
         for _k, _dv in [
-            ("glearn_geste_sel",  list(GESTURES_CONFIG.keys())[0]),
-            ("glearn_msg",        ""),
-            ("glearn_cd_active",  False),
-            ("glearn_cd_start",   0.0),
-            ("glearn_last_geste", ""),
+            ("glearn_geste_sel", list(GESTURES_CONFIG.keys())[0]),
+            ("glearn_cd_start",  None),   # float timestamp ou None
+            ("glearn_msg",       ""),
         ]:
             if _k not in st.session_state:
                 st.session_state[_k] = _dv
@@ -1800,119 +1551,107 @@ with tab_007:
         )
         gcfg_sel = GESTURES_CONFIG[geste_sel]
         st.caption(f"💡 {gcfg_sel['desc']}")
-
-        # Si le geste sélectionné change, réinitialiser le compte à rebours
-        if st.session_state.glearn_last_geste != geste_sel:
-            st.session_state.glearn_cd_active = False
-            st.session_state.glearn_cd_start  = 0.0
-            st.session_state.glearn_last_geste = geste_sel
-
         st.markdown("")
 
-        # ── Capture par photo directe ──
-        # st.camera_input() : pas de WebRTC, pas de STUN/TURN, démarre instantanément
-        snap_col, info_col = st.columns([1.3, 1])
+        # ── Webcam unique + décompte ──
+        lcol, rcol = st.columns([1.2, 1])
 
-        with snap_col:
-            nb_deja    = len(db_gestes.get(geste_sel, []))
-            snap       = None
-            cd_active  = st.session_state.glearn_cd_active
-            cd_elapsed = (time.time() - st.session_state.glearn_cd_start) if cd_active else 0.0
-            CD_TOTAL   = 3  # secondes
+        with lcol:
+            ctx_learn = webrtc_streamer(
+                key="learn_cam",
+                video_processor_factory=VideoProcessor,
+                media_stream_constraints={"video": True, "audio": False},
+                async_processing=True,
+            )
 
-            if cd_active and cd_elapsed < CD_TOTAL:
-                # ── Compte à rebours actif ──
-                cd_remain = CD_TOTAL - int(cd_elapsed)  # 3, 2, 1
-                st_autorefresh(interval=300, key="glearn_cd_tick")
-                colors = {3: "#ffa500", 2: "#ff6600", 1: "#ff2222"}
-                col_cd = colors.get(cd_remain, "#ff2222")
-                st.markdown(f"""
-                <div style='text-align:center; padding:40px 20px;
-                            border:3px solid {col_cd}; border-radius:20px;
-                            background:#160500;'>
-                    <p style='color:#aaa; font-size:1.1em; margin:0 0 10px;'>Prépare ton geste {gcfg_sel['emoji']}</p>
-                    <h1 style='color:{col_cd}; font-size:7em; margin:0; letter-spacing:0.1em;'>{cd_remain}</h1>
-                </div>
-                """, unsafe_allow_html=True)
+        with rcol:
+            cd_box    = st.empty()
+            msg_box   = st.empty()
 
-            elif cd_active:
-                # ── Compte à rebours terminé → camera_input ──
-                snap = st.camera_input(
-                    f"📸  {gcfg_sel['emoji']} MAINTENANT — fais ton geste !",
-                    key=f"cam_learn_{geste_sel}_{nb_deja}",
-                )
-                if snap is None:
-                    if st.button("🔄 Relancer le compte à rebours", key="btn_cd_redo"):
-                        st.session_state.glearn_cd_active = False
-                        st.session_state.glearn_cd_start  = 0.0
-                        st.rerun()
-            else:
-                # ── Repos : bouton de départ ──
-                st.markdown(f"""
-                <div style='text-align:center; padding:36px 20px;
-                            border:2px dashed #555; border-radius:16px;'>
-                    <div style='font-size:3.5em; margin-bottom:6px;'>{gcfg_sel['emoji']}</div>
-                    <p style='color:#aaa; margin:0;'>Prêt(e) ? Lance le compte à rebours,
-                    puis fais ton geste devant la caméra.</p>
-                </div>
-                """, unsafe_allow_html=True)
-                st.markdown("")
-                if st.button(f"⏱️  3, 2, 1… LANCE !", key="btn_cd_start",
-                             type="primary", use_container_width=True):
-                    # Changer de geste = réinitialiser aussi
-                    st.session_state.glearn_cd_active = True
-                    st.session_state.glearn_cd_start  = time.time()
+            cd_start = st.session_state.glearn_cd_start
+
+            # ── Décompte en cours ──
+            if cd_start is not None:
+                elapsed_cd = time.time() - cd_start
+                remaining  = 3.0 - elapsed_cd
+
+                if remaining > 0:
+                    # Affichage du décompte
+                    step = int(remaining) + 1   # 3 → 2 → 1
+                    cd_box.markdown(
+                        f"<div style='text-align:center; padding:30px; "
+                        f"border:3px solid #ffa500; border-radius:16px;'>"
+                        f"<p style='color:#aaa; margin:0;'>Prépare ton geste :</p>"
+                        f"<h1 style='font-size:5em; margin:4px 0; color:#ffa500;'>{step}</h1>"
+                        f"<p style='color:#aaa; font-size:1.1em'>{gcfg_sel['emoji']} {gcfg_sel['label']}</p>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                    time.sleep(0.25)
                     st.rerun()
 
-        with info_col:
-            nb_sel = len(db_gestes.get(geste_sel, []))
-            ok_nb  = nb_sel >= GESTURES_NB_MIN
-            st.markdown(
-                f"<div style='padding:22px; border:2px dashed {gcfg_sel['couleur']}; "
-                f"border-radius:16px; text-align:center;'>"
-                f"<div style='font-size:3em'>{gcfg_sel['emoji']}</div>"
-                f"<h3 style='color:{gcfg_sel['couleur']}; margin:8px 0'>{gcfg_sel['label']}</h3>"
-                f"<p style='color:#aaa; margin:0; font-size:0.95em;'>{gcfg_sel['desc']}</p>"
-                f"<hr style='border-color:#333; margin:12px 0;'>"
-                f"<p style='color:{'#4caf50' if ok_nb else '#888'}; margin:0;'>"
-                f"{nb_sel} photo(s) {'✅' if ok_nb else ('/ ' + str(GESTURES_NB_MIN) + ' minimum')}</p>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
-            st.markdown("")
-
-            if st.session_state.glearn_msg:
-                if "✅" in st.session_state.glearn_msg:
-                    st.success(st.session_state.glearn_msg)
                 else:
-                    st.error(st.session_state.glearn_msg)
+                    # ── Capture ! ──
+                    st.session_state.glearn_cd_start = None
+                    captured_frames = []
+                    if ctx_learn and ctx_learn.video_processor:
+                        with ctx_learn.video_processor.lock:
+                            captured_frames = list(ctx_learn.video_processor.frame_buffer)
 
-            if nb_sel > 0:
+                    if captured_frames:
+                        # Vote sur les frames pour choisir la meilleure frame centrale
+                        mid = len(captured_frames) // 2
+                        frame_cap = captured_frames[mid]
+                        ok_g, msg_g = enregistrer_geste(frame_cap, geste_sel)
+                        st.session_state.glearn_msg = msg_g if ok_g else f"❌ {msg_g}"
+                    else:
+                        st.session_state.glearn_msg = "❌ Caméra inactive — lance la webcam d'abord !"
+                    st.rerun()
+
+            # ── Bouton démarrer décompte ──
+            else:
+                nb_sel = len(db_gestes.get(geste_sel, []))
+                cd_box.markdown(
+                    f"<div style='text-align:center; padding:30px; "
+                    f"border:2px dashed #444; border-radius:16px;'>"
+                    f"<div style='font-size:3em'>{gcfg_sel['emoji']}</div>"
+                    f"<p style='color:#aaa; margin:8px 0;'>{gcfg_sel['label']}</p>"
+                    f"<p style='color:#777; font-size:0.9em;'>{nb_sel} photo(s) enregistrée(s)</p>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
                 if st.button(
-                    f"🗑️ Supprimer toutes les photos de {gcfg_sel['label']} ({nb_sel})",
-                    key="btn_del_geste"
+                    f"📸 Capturer dans 3 secondes — {gcfg_sel['emoji']} {gcfg_sel['label']}",
+                    key="btn_capture_geste",
+                    type="primary",
+                    use_container_width=True,
                 ):
-                    db_g2 = charger_db_gestes()
-                    db_g2[geste_sel] = []
-                    sauvegarder_db_gestes(db_g2)
+                    st.session_state.glearn_cd_start = time.time()
                     st.session_state.glearn_msg = ""
                     st.rerun()
 
-        # Traitement de la photo prise
-        if snap is not None:
-            pil_snap = Image.open(snap).convert("RGB")
-            ok_g, msg_g = enregistrer_geste(pil_snap, geste_sel)
-            st.session_state.glearn_msg      = msg_g if ok_g else f"❌ {msg_g}"
-            st.session_state.glearn_cd_active = False   # reset pour la prochaine capture
-            st.session_state.glearn_cd_start  = 0.0
-            st.rerun()
+                # Message du dernier enregistrement
+                if st.session_state.glearn_msg:
+                    if "✅" in st.session_state.glearn_msg:
+                        msg_box.success(st.session_state.glearn_msg)
+                    else:
+                        msg_box.error(st.session_state.glearn_msg)
+
+                # Bouton supprimer ce geste
+                nb_sel = len(db_gestes.get(geste_sel, []))
+                if nb_sel > 0:
+                    if st.button(
+                        f"🗑️ Supprimer toutes les photos de {gcfg_sel['label']} ({nb_sel})",
+                        key="btn_del_geste"
+                    ):
+                        db_g2 = charger_db_gestes()
+                        db_g2[geste_sel] = []
+                        sauvegarder_db_gestes(db_g2)
+                        st.session_state.glearn_msg = ""
+                        st.rerun()
 
         st.markdown("---")
         if st.button("🗑️ Réinitialiser TOUS les gestes"):
-            sauvegarder_db_gestes({})
-            st.session_state.glearn_msg = ""
-            st.warning("Tous les gestes ont été effacés.")
-            st.rerun()
             sauvegarder_db_gestes({})
             st.session_state.glearn_msg = ""
             st.warning("Tous les gestes ont été effacés.")
@@ -2177,10 +1916,6 @@ with tab_007:
         # PARTIE EN COURS
         # ══════════════════════════════
         else:
-            # st.camera_input() → pas de WebRTC, pas de STUN/TURN, démarre instantanément
-            # st_autorefresh pilote le compte à rebours sans bloquer l'UI
-            st_autorefresh(interval=600, key="g007_tick")
-
             j_vies    = st.session_state.g007_j_vies
             ia_vies   = st.session_state.g007_ia_vies
             j_balles  = st.session_state.g007_j_balles
@@ -2209,104 +1944,153 @@ with tab_007:
                 )
             st.markdown("")
 
-            # ══════════ Affichage selon la phase ══════════
-            pending = st.session_state.g007_pending
+            # ── Webcam + résultat côte à côte ──
+            wc1, wc2 = st.columns([1, 1], gap="large")
 
-            # ── Phase RÉSULTAT ──
-            if phase == "result" and pending:
-                j_cfg_r  = GESTURES_CONFIG.get(pending["j_geste"],  {})
-                ia_cfg_r = GESTURES_CONFIG.get(pending["ia_geste"], {})
-                j_touche_r  = pending["j_touche"]
-                ia_touche_r = pending["ia_touche"]
+            with wc1:
+                ctx_007 = webrtc_streamer(
+                    key="game007",
+                    video_processor_factory=VideoProcessor,
+                    media_stream_constraints={"video": True, "audio": False},
+                    async_processing=True,
+                )
 
-                if ia_touche_r and not j_touche_r:
-                    bg_r, titre_r, border_r = "#1a3a1a", "✅ IA TOUCHÉE !",      "#4caf50"
-                elif j_touche_r and not ia_touche_r:
-                    bg_r, titre_r, border_r = "#3a1a1a", "💥 TU ES TOUCHÉ(E) !", "#e94560"
-                elif j_touche_r and ia_touche_r:
-                    bg_r, titre_r, border_r = "#3a2a00", "💥 DOUBLE TOUCHE !",   "#ff9800"
-                else:
-                    bg_r, titre_r, border_r = "#1a1a2e", "= NEUTRE",             "#666"
+            with wc2:
+                res_box = st.empty()
 
-                prog_r = max(0.0, 1.0 - elapsed / 3.5)
-                st.markdown(f"""
-                <div style='background:{bg_r}; border:3px solid {border_r}; border-radius:20px;
-                            padding:24px; text-align:center; margin:10px 0;'>
-                    <h2 style='color:{border_r}; margin:0 0 16px 0;'>{titre_r}</h2>
-                    <div style='display:flex; justify-content:space-around; margin:16px 0;'>
-                        <div>
-                            <div style='font-size:2.5em'>{j_cfg_r.get('emoji','?')}</div>
-                            <b style='color:#ddd;'>TOI</b><br>
-                            <span style='color:#aaa'>{j_cfg_r.get('label','?')}</span><br>
-                            <small style='color:#666'>{pending['j_conf']}</small>
+                # ── Phase RÉSULTAT : affichage du dernier duel ──
+                pending = st.session_state.g007_pending
+                if phase == "result" and pending:
+                    j_cfg_r  = GESTURES_CONFIG.get(pending["j_geste"],  {})
+                    ia_cfg_r = GESTURES_CONFIG.get(pending["ia_geste"], {})
+                    j_touche_r  = pending["j_touche"]
+                    ia_touche_r = pending["ia_touche"]
+
+                    if ia_touche_r and not j_touche_r:
+                        bg_r, titre_r = "#1a3a1a", "✅ IA TOUCHÉE !"
+                        border_r = "#4caf50"
+                    elif j_touche_r and not ia_touche_r:
+                        bg_r, titre_r = "#3a1a1a", "💥 TU ES TOUCHÉ(E) !"
+                        border_r = "#e94560"
+                    elif j_touche_r and ia_touche_r:
+                        bg_r, titre_r = "#3a2a00", "💥 DOUBLE TOUCHE !"
+                        border_r = "#ff9800"
+                    else:
+                        bg_r, titre_r = "#1a1a2e", "= NEUTRE"
+                        border_r = "#666"
+
+                    t_res  = 3.0
+                    prog_r = max(0.0, 1.0 - elapsed / t_res)
+
+                    res_box.markdown(f"""
+                    <div style='background:{bg_r}; border:3px solid {border_r}; border-radius:20px;
+                                padding:24px; text-align:center;'>
+                        <h2 style='color:{border_r}; margin:0 0 12px 0;'>{titre_r}</h2>
+                        <div style='display:flex; justify-content:space-around; margin:16px 0;'>
+                            <div>
+                                <div style='font-size:2.5em'>{j_cfg_r.get('emoji','?')}</div>
+                                <b style='color:#ddd;'>TOI</b><br>
+                                <span style='color:#aaa'>{j_cfg_r.get('label','?')}</span><br>
+                                <small style='color:#666'>{pending['j_conf']}</small>
+                            </div>
+                            <div style='font-size:2em; align-self:center;'>⚔️</div>
+                            <div>
+                                <div style='font-size:2.5em'>{ia_cfg_r.get('emoji','?')}</div>
+                                <b style='color:#ddd;'>IA</b><br>
+                                <span style='color:#aaa'>{ia_cfg_r.get('label','?')}</span>
+                            </div>
                         </div>
-                        <div style='font-size:2em; align-self:center;'>⚔️</div>
-                        <div>
-                            <div style='font-size:2.5em'>{ia_cfg_r.get('emoji','?')}</div>
-                            <b style='color:#ddd;'>IA</b><br>
-                            <span style='color:#aaa'>{ia_cfg_r.get('label','?')}</span>
-                        </div>
-                    </div>
-                    <hr style='border-color:#444; margin:10px 0;'>
-                    {''.join(f"<p style='color:#ccc; margin:4px 0;'>{m}</p>" for m in pending['msgs'])}
-                </div>
-                """, unsafe_allow_html=True)
-                st.progress(prog_r)
-
-            # ── Phase COMPTE À REBOURS (0 / 00) ──
-            elif phase in ("c0a", "c0b"):
-                chiffre = "0" if phase == "c0a" else "00"
-                _, cd_center, _ = st.columns([1, 2, 1])
-                cd_center.markdown(f"""
-                <div style='text-align:center; padding:50px 20px;
-                            border:3px solid #ffa500; border-radius:24px;
-                            background:#1a1200;'>
-                    <p style='color:#aaa; font-size:1.2em; margin:0 0 8px 0;'>🎯 Prépare ton geste...</p>
-                    <h1 style='font-size:9em; margin:0; color:#ffa500;
-                               letter-spacing:0.15em; font-weight:900;'>{chiffre}</h1>
-                    <p style='color:#555; margin:8px 0 0 0;'>Manche {manche}</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # ── Phase CAPTURE (007) ──
-            elif phase == "c7":
-                cam_col, txt_col = st.columns([1, 1], gap="large")
-                with cam_col:
-                    shot = st.camera_input(
-                        "📸 Montre ton geste puis clique sur **Take photo** !",
-                        key=f"cam007_m{manche}",
-                    )
-                with txt_col:
-                    st.markdown(f"""
-                    <div style='text-align:center; padding:30px 20px;
-                                border:3px solid #ff4444; border-radius:20px;
-                                background:#200000; margin-top:10px;'>
-                        <p style='color:#ff8888; font-size:1.1em; margin:0 0 8px 0;'>📸 CAPTURE !</p>
-                        <h1 style='font-size:6em; margin:0; color:#ff4444;
-                                   letter-spacing:0.15em; font-weight:900;'>007</h1>
-                        <p style='color:#888; margin:10px 0 0 0;'>Manche {manche}</p>
+                        <hr style='border-color:#444; margin:10px 0;'>
+                        {''.join(f"<p style='color:#ccc; margin:4px 0;'>{m}</p>" for m in pending['msgs'])}
                     </div>
                     """, unsafe_allow_html=True)
-                    if elapsed >= 8.0:
-                        st.warning("⏰ Temps écoulé — geste aléatoire joué !")
+                    st.progress(prog_r)
 
-                # Traitement : photo prise OU timeout 10s
-                if shot is not None or elapsed >= 10.0:
-                    if shot is not None:
-                        pil_shot        = Image.open(shot).convert("RGB")
-                        j_geste, j_conf = reconnaitre_geste(pil_shot)
-                        if j_geste is None:
-                            j_geste = random.choice(GESTES_KEYS)
-                            j_conf  = "non reconnu ⚠️"
+                elif phase in ("c0a", "c0b", "c7"):
+                    label_phase = {
+                        "c0a": ("0",   "🎯 Prépare ton geste..."),
+                        "c0b": ("00",  "🎯 Prépare ton geste..."),
+                        "c7":  ("007", "📸 Tiens ton geste !"),
+                    }[phase]
+                    col_chiffre = "#ff4444" if phase == "c7" else "#ffa500"
+                    res_box.markdown(f"""
+                    <div style='text-align:center; padding:40px 20px;
+                                border:2px solid #333; border-radius:16px;'>
+                        <p style='color:#aaa; font-size:1.1em;'>{label_phase[1]}</p>
+                        <h1 style='font-size:4em; margin:0; color:{col_chiffre};
+                                   letter-spacing:0.12em;'>{label_phase[0]}</h1>
+                        <p style='color:#555;'>Manche {manche}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    res_box.markdown("""
+                    <div style='text-align:center; padding:50px 20px;
+                                border:2px dashed #333; border-radius:16px;'>
+                        <p style='color:#555;'>En attente...</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            # ══════════ Logique des phases ══════════
+
+            # ── c0a : premier "0" — attend que la caméra soit prête ──
+            if phase == "c0a":
+                # Vérifier si la caméra a déjà fourni un frame
+                cam_prete = (ctx_007 and ctx_007.video_processor
+                             and ctx_007.video_processor.last_frame_pil is not None)
+                if not cam_prete:
+                    # Caméra pas encore prête : réinitialiser le chrono
+                    st.session_state.g007_phase_t = time.time()
+                    elapsed = 0.0
+                _g007_overlay.update({"active": True, "text": "0", "color": (255, 165, 0)})
+                if cam_prete and elapsed >= 0.7:
+                    st.session_state.g007_phase   = "c0b"
+                    st.session_state.g007_phase_t = time.time()
+                    st.rerun()
+                time.sleep(0.2)
+                st.rerun()
+
+            # ── c0b : deuxième "00" + pré-choix IA (0.7s) ──
+            elif phase == "c0b":
+                _g007_overlay.update({"active": True, "text": "00", "color": (255, 165, 0)})
+                if elapsed >= 0.7:
+                    qt_now = charger_qtable()
+                    st_now = etat_007(j_balles, ia_balles, j_vies, ia_vies)
+                    ia_pre = ia_choisit_geste(ia_balles, ia_vies, j_vies, st_now, qt_now)
+                    st.session_state.g007_ia_pre      = ia_pre
+                    st.session_state.g007_prev_state  = st_now
+                    st.session_state.g007_prev_action = GESTES_KEYS.index(ia_pre)
+                    st.session_state.g007_phase   = "c7"
+                    st.session_state.g007_phase_t = time.time()
+                    st.rerun()
+                time.sleep(0.2)
+                st.rerun()
+
+            # ── c7 : "007" + capture automatique (0.8s) ──
+            elif phase == "c7":
+                _g007_overlay.update({"active": True, "text": "007", "color": (255, 50, 50)})
+                if elapsed >= 0.8:
+                    # Vote multi-frames sur le buffer de la webcam (~30 frames = 1s)
+                    captured_frames = []
+                    if ctx_007 and ctx_007.video_processor:
+                        with ctx_007.video_processor.lock:
+                            captured_frames = list(ctx_007.video_processor.frame_buffer)
+
+                    if captured_frames:
+                        j_geste, j_conf = reconnaitre_geste_vote(captured_frames)
                     else:
+                        j_geste, j_conf = None, "caméra inactive"
+
+                    if j_geste is None:
                         j_geste = random.choice(GESTES_KEYS)
-                        j_conf  = "⏰ timeout"
+                        j_conf  = "non reconnu ⚠️"
 
                     ia_geste = st.session_state.g007_ia_pre or random.choice(GESTES_KEYS)
 
+                    # Résolution duel
                     j_balles_new, ia_balles_new, j_vies_new, ia_vies_new, msgs, j_touche, ia_touche = \
                         resoudre_duel(j_geste, ia_geste, j_balles, ia_balles, j_vies, ia_vies)
 
+                    # Q-learning : récompense + mise à jour
                     reward_ia = calculer_reward_ia(
                         ia_geste, j_geste, ia_balles, j_balles,
                         ia_touche, j_touche, j_vies_new, ia_vies_new
@@ -2322,21 +2106,25 @@ with tab_007:
                         )
                         sauvegarder_qtable(qt_up)
 
+                    # Résultat texte
                     if ia_touche and not j_touche:   res_txt = "🤖 IA touchée"
                     elif j_touche and not ia_touche: res_txt = "💥 Joueur touché"
                     elif j_touche and ia_touche:     res_txt = "💥 Double touche"
                     else:                             res_txt = "= Neutre"
 
+                    # Historique
                     st.session_state.g007_history.append({
-                        "j_geste":  j_geste,  "ia_geste": ia_geste,
-                        "j_conf":   j_conf,   "res_txt":  res_txt,
-                        "j_touche": j_touche, "ia_touche": ia_touche, "msgs": msgs,
+                        "j_geste":   j_geste,  "ia_geste":  ia_geste,
+                        "j_conf":    j_conf,   "res_txt":   res_txt,
+                        "j_touche":  j_touche, "ia_touche": ia_touche,
+                        "msgs":      msgs,
                     })
                     st.session_state.g007_pending = {
-                        "j_geste":  j_geste,  "ia_geste": ia_geste,
-                        "j_conf":   j_conf,   "msgs":     msgs,
-                        "j_touche": j_touche, "ia_touche": ia_touche,
+                        "j_geste":   j_geste,  "ia_geste":  ia_geste,
+                        "j_conf":    j_conf,   "msgs":      msgs,
+                        "j_touche":  j_touche, "ia_touche": ia_touche,
                     }
+                    # Mise à jour état
                     st.session_state.g007_j_vies    = j_vies_new
                     st.session_state.g007_ia_vies   = ia_vies_new
                     st.session_state.g007_j_balles  = j_balles_new
@@ -2344,36 +2132,25 @@ with tab_007:
                     st.session_state.g007_manche    = manche + 1
                     st.session_state.g007_phase     = "result"
                     st.session_state.g007_phase_t   = time.time()
+                    _g007_overlay["active"] = False
                     st.rerun()
-
-            # ══════════ Transitions automatiques de phases ══════════
-
-            # c0a → c0b après 1.5s
-            if phase == "c0a" and elapsed >= 1.5:
-                qt_now = charger_qtable()
-                st_now = etat_007(j_balles, ia_balles, j_vies, ia_vies)
-                ia_pre = ia_choisit_geste(ia_balles, ia_vies, j_vies, st_now, qt_now)
-                st.session_state.g007_ia_pre      = ia_pre
-                st.session_state.g007_prev_state  = st_now
-                st.session_state.g007_prev_action = GESTES_KEYS.index(ia_pre)
-                st.session_state.g007_phase   = "c0b"
-                st.session_state.g007_phase_t = time.time()
+                time.sleep(0.2)
                 st.rerun()
 
-            # c0b → c7 après 1.5s
-            elif phase == "c0b" and elapsed >= 1.5:
-                st.session_state.g007_phase   = "c7"
-                st.session_state.g007_phase_t = time.time()
+            # ── result : affichage résultat (3s) ──
+            elif phase == "result":
+                _g007_overlay["active"] = False
+                if elapsed >= 3.0:
+                    if (st.session_state.g007_j_vies  <= 0 or
+                            st.session_state.g007_ia_vies <= 0):
+                        st.session_state.g007_active = False
+                        st.session_state.g007_over   = True
+                        st.rerun()
+                    else:
+                        st.session_state.g007_pending = None
+                        st.session_state.g007_phase   = "c0a"
+                        st.session_state.g007_phase_t = time.time()
+                        st.rerun()
+                time.sleep(0.3)
                 st.rerun()
 
-            # result → manche suivante après 3.5s
-            elif phase == "result" and elapsed >= 3.5:
-                if (st.session_state.g007_j_vies  <= 0 or
-                        st.session_state.g007_ia_vies <= 0):
-                    st.session_state.g007_active = False
-                    st.session_state.g007_over   = True
-                else:
-                    st.session_state.g007_pending = None
-                    st.session_state.g007_phase   = "c0a"
-                    st.session_state.g007_phase_t = time.time()
-                st.rerun()
