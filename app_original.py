@@ -1969,7 +1969,7 @@ with tab_007:
         # ══════════════════════════════
         else:
             # st_autorefresh pilote toutes les transitions sans time.sleep
-            st_autorefresh(interval=500, key="g007_tick")
+            st_autorefresh(interval=150, key="g007_tick")
 
             j_vies    = st.session_state.g007_j_vies
             ia_vies   = st.session_state.g007_ia_vies
@@ -2014,7 +2014,7 @@ with tab_007:
                     bg_r, titre_r, border_r = "#3a2a00", "💥 DOUBLE TOUCHE !",  "#ff9800"
                 else:
                     bg_r, titre_r, border_r = "#1a1a2e", "= NEUTRE",            "#666"
-                prog_r = max(0.0, 1.0 - elapsed / 3.0)
+                prog_r = max(0.0, 1.0 - elapsed / 2.0)
                 st.markdown(f"""
                 <div style='background:{bg_r}; border:3px solid {border_r}; border-radius:20px;
                             padding:24px; text-align:center; max-width:520px; margin:auto;'>
@@ -2090,16 +2090,21 @@ with tab_007:
                         setTimeout(function() {{
                             var btn = cam.querySelector('button');
                             if (btn) btn.click();
-                        }}, 350);
+                        }}, 100);
                     }}
                 }})();
                 </script>
                 """, height=1, scrolling=False)
 
                 # Traitement : photo prise (auto-clic 007) OU timeout
-                if phase == "c7" and (shot is not None or elapsed >= 9.0):
+                if phase == "c7" and (shot is not None or elapsed >= 5.0):
                     if shot is not None:
-                        pil_shot = Image.open(shot).convert("RGB")
+                        _raw = shot.getvalue()
+                        pil_shot = Image.open(io.BytesIO(_raw)).convert("RGB") if _raw else None
+                    else:
+                        pil_shot = None
+
+                    if pil_shot is not None:
                         j_geste, j_conf = reconnaitre_geste(pil_shot)
                     else:
                         j_geste, j_conf = None, "temps écoulé ⏰"
@@ -2152,7 +2157,7 @@ with tab_007:
                     st.rerun()
 
             # ══ Transitions de phases ══
-            if phase == "c0a" and elapsed >= 1.5:
+            if phase == "c0a" and elapsed >= 0.6:
                 st.session_state.g007_phase   = "c0b"
                 st.session_state.g007_phase_t = time.time()
                 # pré-choix IA
@@ -2164,12 +2169,12 @@ with tab_007:
                 st.session_state.g007_prev_action = GESTES_KEYS.index(ia_pre)
                 st.rerun()
 
-            elif phase == "c0b" and elapsed >= 1.5:
+            elif phase == "c0b" and elapsed >= 0.6:
                 st.session_state.g007_phase   = "c7"
                 st.session_state.g007_phase_t = time.time()
                 st.rerun()
 
-            elif phase == "result" and elapsed >= 3.0:
+            elif phase == "result" and elapsed >= 2.0:
                 if st.session_state.g007_j_vies <= 0 or st.session_state.g007_ia_vies <= 0:
                     st.session_state.g007_active = False
                     st.session_state.g007_over   = True
