@@ -1795,10 +1795,9 @@ with tab_007:
         )
         st.markdown("---")
 
-        # ── Init session state décompte ──
+        # ── Init session state ──
         for _k, _dv in [
             ("glearn_geste_sel", list(GESTURES_CONFIG.keys())[0]),
-            ("glearn_cd_start",  None),   # float timestamp ou None
             ("glearn_msg",       ""),
         ]:
             if _k not in st.session_state:
@@ -1847,126 +1846,64 @@ with tab_007:
         st.caption(f"💡 {gcfg_sel['desc']}")
         st.markdown("")
 
-        # ── Webcam unique + décompte ──
-        lcol, rcol = st.columns([1.2, 1])
+        # ── Capture par photo directe ──
+        # st.camera_input() : pas de WebRTC, pas de STUN/TURN, démarre instantanément
+        snap_col, info_col = st.columns([1.3, 1])
 
-        with lcol:
-            ctx_learn = webrtc_streamer(
-                key="learn_cam",
-                video_processor_factory=LightVideoProcessor,
-                media_stream_constraints={"video": True, "audio": False},
-                async_processing=True,
+        with snap_col:
+            nb_deja = len(db_gestes.get(geste_sel, []))
+            snap = st.camera_input(
+                f"📸 {gcfg_sel['emoji']} {gcfg_sel['label']} — positionne ta main et clique sur Take photo",
+                key=f"cam_learn_{geste_sel}_{nb_deja}",  # clé unique → reset après chaque capture
             )
-            st.caption("👋 La **main détectée** s'affiche en vert sur la vidéo — assure-toi de la voir avant de capturer !")
 
-        with rcol:
-            cd_box    = st.empty()
-            msg_box   = st.empty()
+        with info_col:
+            nb_sel = len(db_gestes.get(geste_sel, []))
+            ok_nb  = nb_sel >= GESTURES_NB_MIN
+            st.markdown(
+                f"<div style='padding:22px; border:2px dashed {gcfg_sel['couleur']}; "
+                f"border-radius:16px; text-align:center;'>"
+                f"<div style='font-size:3em'>{gcfg_sel['emoji']}</div>"
+                f"<h3 style='color:{gcfg_sel['couleur']}; margin:8px 0'>{gcfg_sel['label']}</h3>"
+                f"<p style='color:#aaa; margin:0; font-size:0.95em;'>{gcfg_sel['desc']}</p>"
+                f"<hr style='border-color:#333; margin:12px 0;'>"
+                f"<p style='color:{'#4caf50' if ok_nb else '#888'}; margin:0;'>"
+                f"{nb_sel} photo(s) {'✅' if ok_nb else ('/ ' + str(GESTURES_NB_MIN) + ' minimum')}</p>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+            st.markdown("")
 
-            cd_start = st.session_state.glearn_cd_start
-
-            # ── Décompte en cours ──
-            if cd_start is not None:
-                # Auto-refresh sans sleep → pas d'assombrissement
-                st_autorefresh(interval=350, key="learn_cd_ar")
-                elapsed_cd = time.time() - cd_start
-                remaining  = 3.0 - elapsed_cd
-
-                if remaining > 0:
-                    # Affichage du décompte
-                    step = int(remaining) + 1   # 3 → 2 → 1
-                    cd_box.markdown(
-                        f"<div style='text-align:center; padding:30px; "
-                        f"border:3px solid #ffa500; border-radius:16px;'>"
-                        f"<p style='color:#aaa; margin:0;'>Prépare ton geste :</p>"
-                        f"<h1 style='font-size:5em; margin:4px 0; color:#ffa500;'>{step}</h1>"
-                        f"<p style='color:#aaa; font-size:1.1em'>{gcfg_sel['emoji']} {gcfg_sel['label']}</p>"
-                        f"</div>",
-                        unsafe_allow_html=True
-                    )
-                    # st_autorefresh déclenche le prochain cycle ─ pas besoin de st.rerun()
-
+            if st.session_state.glearn_msg:
+                if "✅" in st.session_state.glearn_msg:
+                    st.success(st.session_state.glearn_msg)
                 else:
-                    # ── Capture ! ──
-                    st.session_state.glearn_cd_start = None
-                    captured_frames = []
-                    if ctx_learn and ctx_learn.video_processor:
-                        with ctx_learn.video_processor.lock:
-                            captured_frames = list(ctx_learn.video_processor.frame_buffer)
+                    st.error(st.session_state.glearn_msg)
 
-                    if captured_frames:
-                        # Parcourt toutes les frames (depuis le milieu vers les bords)
-                        # pour trouver celle où MediaPipe détecte une main
-                        best_frame = None
-                        indices = []
-                        mid = len(captured_frames) // 2
-                        for offset in range(len(captured_frames)):
-                            i_minus = mid - offset
-                            i_plus  = mid + offset
-                            if 0 <= i_minus < len(captured_frames) and i_minus not in indices:
-                                indices.append(i_minus)
-                            if 0 <= i_plus < len(captured_frames) and i_plus not in indices:
-                                indices.append(i_plus)
-                        for idx in indices:
-                            vec = get_gesture_landmark(captured_frames[idx])
-                            if vec is not None:
-                                best_frame = captured_frames[idx]
-                                break
-
-                        if best_frame is None:
-                            # Aucune frame avec main → essayer quand même la frame centrale
-                            best_frame = captured_frames[mid]
-
-                        ok_g, msg_g = enregistrer_geste(best_frame, geste_sel)
-                        st.session_state.glearn_msg = msg_g if ok_g else f"❌ {msg_g}"
-                    else:
-                        st.session_state.glearn_msg = "❌ Caméra inactive — appuie sur START !"
-                    st.rerun()
-
-            # ── Bouton démarrer décompte ──
-            else:
-                nb_sel = len(db_gestes.get(geste_sel, []))
-                cd_box.markdown(
-                    f"<div style='text-align:center; padding:30px; "
-                    f"border:2px dashed #444; border-radius:16px;'>"
-                    f"<div style='font-size:3em'>{gcfg_sel['emoji']}</div>"
-                    f"<p style='color:#aaa; margin:8px 0;'>{gcfg_sel['label']}</p>"
-                    f"<p style='color:#777; font-size:0.9em;'>{nb_sel} photo(s) enregistrée(s)</p>"
-                    f"</div>",
-                    unsafe_allow_html=True
-                )
+            if nb_sel > 0:
                 if st.button(
-                    f"📸 Capturer dans 3 secondes — {gcfg_sel['emoji']} {gcfg_sel['label']}",
-                    key="btn_capture_geste",
-                    type="primary",
-                    use_container_width=True,
+                    f"🗑️ Supprimer toutes les photos de {gcfg_sel['label']} ({nb_sel})",
+                    key="btn_del_geste"
                 ):
-                    st.session_state.glearn_cd_start = time.time()
+                    db_g2 = charger_db_gestes()
+                    db_g2[geste_sel] = []
+                    sauvegarder_db_gestes(db_g2)
                     st.session_state.glearn_msg = ""
                     st.rerun()
 
-                # Message du dernier enregistrement
-                if st.session_state.glearn_msg:
-                    if "✅" in st.session_state.glearn_msg:
-                        msg_box.success(st.session_state.glearn_msg)
-                    else:
-                        msg_box.error(st.session_state.glearn_msg)
-
-                # Bouton supprimer ce geste
-                nb_sel = len(db_gestes.get(geste_sel, []))
-                if nb_sel > 0:
-                    if st.button(
-                        f"🗑️ Supprimer toutes les photos de {gcfg_sel['label']} ({nb_sel})",
-                        key="btn_del_geste"
-                    ):
-                        db_g2 = charger_db_gestes()
-                        db_g2[geste_sel] = []
-                        sauvegarder_db_gestes(db_g2)
-                        st.session_state.glearn_msg = ""
-                        st.rerun()
+        # Traitement de la photo prise
+        if snap is not None:
+            pil_snap = Image.open(snap).convert("RGB")
+            ok_g, msg_g = enregistrer_geste(pil_snap, geste_sel)
+            st.session_state.glearn_msg = msg_g if ok_g else f"❌ {msg_g}"
+            st.rerun()
 
         st.markdown("---")
         if st.button("🗑️ Réinitialiser TOUS les gestes"):
+            sauvegarder_db_gestes({})
+            st.session_state.glearn_msg = ""
+            st.warning("Tous les gestes ont été effacés.")
+            st.rerun()
             sauvegarder_db_gestes({})
             st.session_state.glearn_msg = ""
             st.warning("Tous les gestes ont été effacés.")
@@ -2231,7 +2168,8 @@ with tab_007:
         # PARTIE EN COURS
         # ══════════════════════════════
         else:
-            # ── Autorefresh sans time.sleep() → pas d'assombrissement page ──
+            # st.camera_input() → pas de WebRTC, pas de STUN/TURN, démarre instantanément
+            # st_autorefresh pilote le compte à rebours sans bloquer l'UI
             st_autorefresh(interval=400, key="g007_tick")
 
             j_vies    = st.session_state.g007_j_vies
@@ -2262,155 +2200,104 @@ with tab_007:
                 )
             st.markdown("")
 
-            # ── Webcam + résultat côte à côte ──
-            wc1, wc2 = st.columns([1, 1], gap="large")
+            # ══════════ Affichage selon la phase ══════════
+            pending = st.session_state.g007_pending
 
-            with wc1:
-                ctx_007 = webrtc_streamer(
-                    key="game007",
-                    video_processor_factory=LightVideoProcessor,
-                    media_stream_constraints={"video": True, "audio": False},
-                    async_processing=True,
-                )
+            # ── Phase RÉSULTAT ──
+            if phase == "result" and pending:
+                j_cfg_r  = GESTURES_CONFIG.get(pending["j_geste"],  {})
+                ia_cfg_r = GESTURES_CONFIG.get(pending["ia_geste"], {})
+                j_touche_r  = pending["j_touche"]
+                ia_touche_r = pending["ia_touche"]
 
-            with wc2:
-                res_box = st.empty()
-
-                # ── Phase RÉSULTAT : affichage du dernier duel ──
-                pending = st.session_state.g007_pending
-                if phase == "result" and pending:
-                    j_cfg_r  = GESTURES_CONFIG.get(pending["j_geste"],  {})
-                    ia_cfg_r = GESTURES_CONFIG.get(pending["ia_geste"], {})
-                    j_touche_r  = pending["j_touche"]
-                    ia_touche_r = pending["ia_touche"]
-
-                    if ia_touche_r and not j_touche_r:
-                        bg_r, titre_r = "#1a3a1a", "✅ IA TOUCHÉE !"
-                        border_r = "#4caf50"
-                    elif j_touche_r and not ia_touche_r:
-                        bg_r, titre_r = "#3a1a1a", "💥 TU ES TOUCHÉ(E) !"
-                        border_r = "#e94560"
-                    elif j_touche_r and ia_touche_r:
-                        bg_r, titre_r = "#3a2a00", "💥 DOUBLE TOUCHE !"
-                        border_r = "#ff9800"
-                    else:
-                        bg_r, titre_r = "#1a1a2e", "= NEUTRE"
-                        border_r = "#666"
-
-                    t_res  = 3.0
-                    prog_r = max(0.0, 1.0 - elapsed / t_res)
-
-                    res_box.markdown(f"""
-                    <div style='background:{bg_r}; border:3px solid {border_r}; border-radius:20px;
-                                padding:24px; text-align:center;'>
-                        <h2 style='color:{border_r}; margin:0 0 12px 0;'>{titre_r}</h2>
-                        <div style='display:flex; justify-content:space-around; margin:16px 0;'>
-                            <div>
-                                <div style='font-size:2.5em'>{j_cfg_r.get('emoji','?')}</div>
-                                <b style='color:#ddd;'>TOI</b><br>
-                                <span style='color:#aaa'>{j_cfg_r.get('label','?')}</span><br>
-                                <small style='color:#666'>{pending['j_conf']}</small>
-                            </div>
-                            <div style='font-size:2em; align-self:center;'>⚔️</div>
-                            <div>
-                                <div style='font-size:2.5em'>{ia_cfg_r.get('emoji','?')}</div>
-                                <b style='color:#ddd;'>IA</b><br>
-                                <span style='color:#aaa'>{ia_cfg_r.get('label','?')}</span>
-                            </div>
-                        </div>
-                        <hr style='border-color:#444; margin:10px 0;'>
-                        {''.join(f"<p style='color:#ccc; margin:4px 0;'>{m}</p>" for m in pending['msgs'])}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.progress(prog_r)
-
-                elif phase in ("c0a", "c0b", "c7"):
-                    label_phase = {
-                        "c0a": ("0",   "🎯 Prépare ton geste...",      1.8),
-                        "c0b": ("00",  "🎯 Prépare ton geste...",      1.8),
-                        "c7":  ("007", "📸 Tiens ton geste — capture !", 2.0),
-                    }[phase]
-                    col_chiffre = "#ff4444" if phase == "c7" else "#ffa500"
-                    prog_val    = min(1.0, elapsed / label_phase[2])
-                    res_box.markdown(f"""
-                    <div style='text-align:center; padding:30px 20px;
-                                border:2px solid {"#ff4444" if phase == "c7" else "#ffa500"};
-                                border-radius:16px;
-                                background:{"#200000" if phase == "c7" else "#1a1200"};'>
-                        <p style='color:#aaa; font-size:1.15em; margin:0 0 6px 0;'>{label_phase[1]}</p>
-                        <h1 style='font-size:5em; margin:0; color:{col_chiffre};
-                                   letter-spacing:0.15em; font-weight:900;'>{label_phase[0]}</h1>
-                        <p style='color:#666; margin:6px 0 0 0;'>Manche {manche}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.progress(prog_val)
+                if ia_touche_r and not j_touche_r:
+                    bg_r, titre_r, border_r = "#1a3a1a", "✅ IA TOUCHÉE !",      "#4caf50"
+                elif j_touche_r and not ia_touche_r:
+                    bg_r, titre_r, border_r = "#3a1a1a", "💥 TU ES TOUCHÉ(E) !", "#e94560"
+                elif j_touche_r and ia_touche_r:
+                    bg_r, titre_r, border_r = "#3a2a00", "💥 DOUBLE TOUCHE !",   "#ff9800"
                 else:
-                    res_box.markdown("""
-                    <div style='text-align:center; padding:50px 20px;
-                                border:2px dashed #333; border-radius:16px;'>
-                        <p style='color:#555;'>En attente...</p>
+                    bg_r, titre_r, border_r = "#1a1a2e", "= NEUTRE",             "#666"
+
+                prog_r = max(0.0, 1.0 - elapsed / 3.5)
+                st.markdown(f"""
+                <div style='background:{bg_r}; border:3px solid {border_r}; border-radius:20px;
+                            padding:24px; text-align:center; margin:10px 0;'>
+                    <h2 style='color:{border_r}; margin:0 0 16px 0;'>{titre_r}</h2>
+                    <div style='display:flex; justify-content:space-around; margin:16px 0;'>
+                        <div>
+                            <div style='font-size:2.5em'>{j_cfg_r.get('emoji','?')}</div>
+                            <b style='color:#ddd;'>TOI</b><br>
+                            <span style='color:#aaa'>{j_cfg_r.get('label','?')}</span><br>
+                            <small style='color:#666'>{pending['j_conf']}</small>
+                        </div>
+                        <div style='font-size:2em; align-self:center;'>⚔️</div>
+                        <div>
+                            <div style='font-size:2.5em'>{ia_cfg_r.get('emoji','?')}</div>
+                            <b style='color:#ddd;'>IA</b><br>
+                            <span style='color:#aaa'>{ia_cfg_r.get('label','?')}</span>
+                        </div>
+                    </div>
+                    <hr style='border-color:#444; margin:10px 0;'>
+                    {''.join(f"<p style='color:#ccc; margin:4px 0;'>{m}</p>" for m in pending['msgs'])}
+                </div>
+                """, unsafe_allow_html=True)
+                st.progress(prog_r)
+
+            # ── Phase COMPTE À REBOURS (0 / 00) ──
+            elif phase in ("c0a", "c0b"):
+                chiffre = "0" if phase == "c0a" else "00"
+                _, cd_center, _ = st.columns([1, 2, 1])
+                cd_center.markdown(f"""
+                <div style='text-align:center; padding:50px 20px;
+                            border:3px solid #ffa500; border-radius:24px;
+                            background:#1a1200;'>
+                    <p style='color:#aaa; font-size:1.2em; margin:0 0 8px 0;'>🎯 Prépare ton geste...</p>
+                    <h1 style='font-size:9em; margin:0; color:#ffa500;
+                               letter-spacing:0.15em; font-weight:900;'>{chiffre}</h1>
+                    <p style='color:#555; margin:8px 0 0 0;'>Manche {manche}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # ── Phase CAPTURE (007) ──
+            elif phase == "c7":
+                cam_col, txt_col = st.columns([1, 1], gap="large")
+                with cam_col:
+                    shot = st.camera_input(
+                        "📸 Montre ton geste puis clique sur **Take photo** !",
+                        key=f"cam007_m{manche}",
+                    )
+                with txt_col:
+                    st.markdown(f"""
+                    <div style='text-align:center; padding:30px 20px;
+                                border:3px solid #ff4444; border-radius:20px;
+                                background:#200000; margin-top:10px;'>
+                        <p style='color:#ff8888; font-size:1.1em; margin:0 0 8px 0;'>📸 CAPTURE !</p>
+                        <h1 style='font-size:6em; margin:0; color:#ff4444;
+                                   letter-spacing:0.15em; font-weight:900;'>007</h1>
+                        <p style='color:#888; margin:10px 0 0 0;'>Manche {manche}</p>
                     </div>
                     """, unsafe_allow_html=True)
+                    if elapsed >= 8.0:
+                        st.warning("⏰ Temps écoulé — geste aléatoire joué !")
 
-            # ══════════ Logique des phases ══════════
-
-            # ── c0a : premier "0" — attend que la caméra soit prête ──
-            if phase == "c0a":
-                # Vérifier si la caméra a déjà fourni un frame
-                cam_prete = (ctx_007 and ctx_007.video_processor
-                             and ctx_007.video_processor.last_frame_pil is not None)
-                if not cam_prete:
-                    # Caméra pas encore prête : réinitialiser le chrono
-                    st.session_state.g007_phase_t = time.time()
-                    elapsed = 0.0
-                _g007_overlay.update({"active": True, "text": "0", "color": (255, 165, 0)})
-                if cam_prete and elapsed >= 1.8:
-                    st.session_state.g007_phase   = "c0b"
-                    st.session_state.g007_phase_t = time.time()
-                    st.rerun()
-                # st_autorefresh gère le polling ─ pas de time.sleep()
-
-            # ── c0b : deuxième "00" + pré-choix IA (1.8s) ──
-            elif phase == "c0b":
-                _g007_overlay.update({"active": True, "text": "00", "color": (255, 165, 0)})
-                if elapsed >= 1.8:
-                    qt_now = charger_qtable()
-                    st_now = etat_007(j_balles, ia_balles, j_vies, ia_vies)
-                    ia_pre = ia_choisit_geste(ia_balles, ia_vies, j_vies, st_now, qt_now)
-                    st.session_state.g007_ia_pre      = ia_pre
-                    st.session_state.g007_prev_state  = st_now
-                    st.session_state.g007_prev_action = GESTES_KEYS.index(ia_pre)
-                    st.session_state.g007_phase   = "c7"
-                    st.session_state.g007_phase_t = time.time()
-                    st.rerun()
-                # st_autorefresh gère le polling ─ pas de time.sleep()
-
-            # ── c7 : "007" + capture automatique (2.0s) ──
-            elif phase == "c7":
-                _g007_overlay.update({"active": True, "text": "007", "color": (255, 50, 50)})
-                if elapsed >= 2.0:
-                    # Vote multi-frames sur le buffer de la webcam (~30 frames = 1s)
-                    captured_frames = []
-                    if ctx_007 and ctx_007.video_processor:
-                        with ctx_007.video_processor.lock:
-                            captured_frames = list(ctx_007.video_processor.frame_buffer)
-
-                    if captured_frames:
-                        j_geste, j_conf = reconnaitre_geste_vote(captured_frames)
+                # Traitement : photo prise OU timeout 10s
+                if shot is not None or elapsed >= 10.0:
+                    if shot is not None:
+                        pil_shot        = Image.open(shot).convert("RGB")
+                        j_geste, j_conf = reconnaitre_geste(pil_shot)
+                        if j_geste is None:
+                            j_geste = random.choice(GESTES_KEYS)
+                            j_conf  = "non reconnu ⚠️"
                     else:
-                        j_geste, j_conf = None, "caméra inactive"
-
-                    if j_geste is None:
                         j_geste = random.choice(GESTES_KEYS)
-                        j_conf  = "non reconnu ⚠️"
+                        j_conf  = "⏰ timeout"
 
                     ia_geste = st.session_state.g007_ia_pre or random.choice(GESTES_KEYS)
 
-                    # Résolution duel
                     j_balles_new, ia_balles_new, j_vies_new, ia_vies_new, msgs, j_touche, ia_touche = \
                         resoudre_duel(j_geste, ia_geste, j_balles, ia_balles, j_vies, ia_vies)
 
-                    # Q-learning : récompense + mise à jour
                     reward_ia = calculer_reward_ia(
                         ia_geste, j_geste, ia_balles, j_balles,
                         ia_touche, j_touche, j_vies_new, ia_vies_new
@@ -2426,25 +2313,21 @@ with tab_007:
                         )
                         sauvegarder_qtable(qt_up)
 
-                    # Résultat texte
                     if ia_touche and not j_touche:   res_txt = "🤖 IA touchée"
                     elif j_touche and not ia_touche: res_txt = "💥 Joueur touché"
                     elif j_touche and ia_touche:     res_txt = "💥 Double touche"
                     else:                             res_txt = "= Neutre"
 
-                    # Historique
                     st.session_state.g007_history.append({
-                        "j_geste":   j_geste,  "ia_geste":  ia_geste,
-                        "j_conf":    j_conf,   "res_txt":   res_txt,
-                        "j_touche":  j_touche, "ia_touche": ia_touche,
-                        "msgs":      msgs,
+                        "j_geste":  j_geste,  "ia_geste": ia_geste,
+                        "j_conf":   j_conf,   "res_txt":  res_txt,
+                        "j_touche": j_touche, "ia_touche": ia_touche, "msgs": msgs,
                     })
                     st.session_state.g007_pending = {
-                        "j_geste":   j_geste,  "ia_geste":  ia_geste,
-                        "j_conf":    j_conf,   "msgs":      msgs,
-                        "j_touche":  j_touche, "ia_touche": ia_touche,
+                        "j_geste":  j_geste,  "ia_geste": ia_geste,
+                        "j_conf":   j_conf,   "msgs":     msgs,
+                        "j_touche": j_touche, "ia_touche": ia_touche,
                     }
-                    # Mise à jour état
                     st.session_state.g007_j_vies    = j_vies_new
                     st.session_state.g007_ia_vies   = ia_vies_new
                     st.session_state.g007_j_balles  = j_balles_new
@@ -2452,23 +2335,36 @@ with tab_007:
                     st.session_state.g007_manche    = manche + 1
                     st.session_state.g007_phase     = "result"
                     st.session_state.g007_phase_t   = time.time()
-                    _g007_overlay["active"] = False
                     st.rerun()
-                # st_autorefresh gère le polling ─ pas de time.sleep()
 
-            # ── result : affichage résultat (3.5s) ──
-            elif phase == "result":
-                _g007_overlay["active"] = False
-                if elapsed >= 3.5:
-                    if (st.session_state.g007_j_vies  <= 0 or
-                            st.session_state.g007_ia_vies <= 0):
-                        st.session_state.g007_active = False
-                        st.session_state.g007_over   = True
-                        st.rerun()
-                    else:
-                        st.session_state.g007_pending = None
-                        st.session_state.g007_phase   = "c0a"
-                        st.session_state.g007_phase_t = time.time()
-                        st.rerun()
-                # st_autorefresh gère le polling ─ pas de time.sleep()
+            # ══════════ Transitions automatiques de phases ══════════
 
+            # c0a → c0b après 1.5s
+            if phase == "c0a" and elapsed >= 1.5:
+                qt_now = charger_qtable()
+                st_now = etat_007(j_balles, ia_balles, j_vies, ia_vies)
+                ia_pre = ia_choisit_geste(ia_balles, ia_vies, j_vies, st_now, qt_now)
+                st.session_state.g007_ia_pre      = ia_pre
+                st.session_state.g007_prev_state  = st_now
+                st.session_state.g007_prev_action = GESTES_KEYS.index(ia_pre)
+                st.session_state.g007_phase   = "c0b"
+                st.session_state.g007_phase_t = time.time()
+                st.rerun()
+
+            # c0b → c7 après 1.5s
+            elif phase == "c0b" and elapsed >= 1.5:
+                st.session_state.g007_phase   = "c7"
+                st.session_state.g007_phase_t = time.time()
+                st.rerun()
+
+            # result → manche suivante après 3.5s
+            elif phase == "result" and elapsed >= 3.5:
+                if (st.session_state.g007_j_vies  <= 0 or
+                        st.session_state.g007_ia_vies <= 0):
+                    st.session_state.g007_active = False
+                    st.session_state.g007_over   = True
+                else:
+                    st.session_state.g007_pending = None
+                    st.session_state.g007_phase   = "c0a"
+                    st.session_state.g007_phase_t = time.time()
+                st.rerun()
