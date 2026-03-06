@@ -13,7 +13,7 @@ import pymongo
 import pandas as pd
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
-from transformers import pipeline
+from transformers import AutoModelForImageClassification, AutoImageProcessor
 from bson.objectid import ObjectId
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 import av
@@ -32,9 +32,28 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 # CHARGEMENT DU MODÈLE (mis en cache)
 # ─────────────────────────────────────────────
+class _ViTClassifier:
+    """Wrapper pipeline-compatible autour de ViT, sans dépendance à transformers.pipeline."""
+    def __init__(self, model_name):
+        self.image_processor = AutoImageProcessor.from_pretrained(model_name)
+        self.model = AutoModelForImageClassification.from_pretrained(model_name)
+        self.model.eval()
+        self._id2label = self.model.config.id2label
+
+    def __call__(self, pil_image, top_k=5):
+        inputs = self.image_processor(images=pil_image, return_tensors="pt")
+        with torch.no_grad():
+            logits = self.model(**inputs).logits
+        probs = torch.softmax(logits, dim=-1)[0]
+        topk = torch.topk(probs, k=min(top_k, probs.shape[-1]))
+        return [
+            {"label": self._id2label[idx.item()], "score": score.item()}
+            for idx, score in zip(topk.indices, topk.values)
+        ]
+
 @st.cache_resource
 def load_model():
-    return pipeline("image-classification", model="google/vit-base-patch16-224")
+    return _ViTClassifier("google/vit-base-patch16-224")
 
 classifier = load_model()
 
