@@ -28,6 +28,25 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
+# CSS GLOBAL – supprime l'assombrissement lors des reruns
+# ─────────────────────────────────────────────
+st.markdown("""
+<style>
+/* Empêche Streamlit d'assombrir l'écran pendant les reruns (st_autorefresh, st.rerun) */
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewBlockContainer"],
+.stApp {
+    opacity: 1 !important;
+    transition: none !important;
+}
+/* Cache le petit indicateur "en cours d'exécution" en haut à droite */
+[data-testid="stStatusWidget"] { display: none !important; }
+/* Supprime le spinner de chargement qui peut clignoter */
+[data-testid="stSpinner"]      { display: none !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
 # MODÈLE PRINCIPAL – ViT HuggingFace (meilleur)
 # ─────────────────────────────────────────────
 @st.cache_resource
@@ -2170,7 +2189,7 @@ with tab_007:
         else:
             # st.camera_input() → pas de WebRTC, pas de STUN/TURN, démarre instantanément
             # st_autorefresh pilote le compte à rebours sans bloquer l'UI
-            st_autorefresh(interval=400, key="g007_tick")
+            st_autorefresh(interval=600, key="g007_tick")
 
             j_vies    = st.session_state.g007_j_vies
             ia_vies   = st.session_state.g007_ia_vies
