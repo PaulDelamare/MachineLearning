@@ -235,13 +235,14 @@ def get_gesture_landmark(pil_image):
     """
     Extrait les landmarks MediaPipe d'une main visible dans l'image.
     Retourne un vecteur NumPy 63-dim normalisé, ou None si aucune main détectée.
-    Beaucoup plus précis que MobileNetV2 pour des gestes de mains.
+    Thread-safe grâce à _mp_lock.
     """
     if _mp_hands is None:
         return None
     try:
-        img     = np.array(pil_image.resize((256, 256)).convert("RGB"))
-        results = _mp_hands.process(img)
+        img = np.array(pil_image.resize((256, 256)).convert("RGB"))
+        with _mp_lock:
+            results = _mp_hands.process(img)
         if not results.multi_hand_landmarks:
             return None
         return _landmark_to_vector(results.multi_hand_landmarks[0].landmark)
@@ -940,6 +941,95 @@ def analyser_image_tf(pil_image):
 # ─────────────────────────────────────────────
 # Dictionnaire partagé entre le thread principal et VideoProcessor pour l'overlay 007
 _g007_overlay = {"active": False, "text": "", "color": (255, 200, 0)}
+
+# Lock thread-safe pour MediaPipe (non thread-safe nativement)
+_mp_lock = threading.Lock()
+
+# ──────────────────────────────────────────────
+# LIGHT VIDEO PROCESSOR  (gestes + 007 game)
+# Pas d'inférence ViT/TF → démarre instantanément
+# Dessine les landmarks MediaPipe en direct (feedback visuel)
+# ──────────────────────────────────────────────
+class LightVideoProcessor(VideoProcessorBase):
+    """
+    Processeur léger pour la webcam de capture de gestes et le jeu 007.
+    - Aucune inférence IA lourde en background
+    - Dessine les landmarks MediaPipe Hands en temps réel (~1 ms/frame)
+    - Buffer de frames pour la capture et le vote 007
+    """
+    def __init__(self):
+        self.lock           = threading.Lock()
+        self.last_frame_pil = None
+        self.frame_buffer   = deque(maxlen=60)  # ~2s à 30fps
+        # Instance MediaPipe propre à ce processeur (static_image_mode=False = mode vidéo rapide)
+        try:
+            self._hands = mp.solutions.hands.Hands(
+                static_image_mode=False,
+                max_num_hands=1,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5,
+            )
+            self._mp_draw = mp.solutions.drawing_utils
+            self._mp_styles = mp.solutions.drawing_styles
+        except Exception:
+            self._hands = None
+
+    def recv(self, frame):
+        img_rgb = frame.to_ndarray(format="rgb24")
+        pil_img = Image.fromarray(img_rgb)
+
+        with self.lock:
+            self.last_frame_pil = pil_img
+            self.frame_buffer.append(pil_img)
+
+        # ── Overlay compte à rebours 007 ──
+        if _g007_overlay["active"] and _g007_overlay["text"]:
+            pil_draw = pil_img.copy()
+            draw = ImageDraw.Draw(pil_draw)
+            h, w = img_rgb.shape[:2]
+            txt  = _g007_overlay["text"]
+            col  = _g007_overlay["color"]
+            try:
+                font_size = {1: 160, 2: 150}.get(len(txt), 130)
+                font_big  = ImageFont.truetype("arial.ttf", font_size)
+            except Exception:
+                font_big = ImageFont.load_default()
+            try:
+                bb = draw.textbbox((0, 0), txt, font=font_big)
+                tw, th = bb[2] - bb[0], bb[3] - bb[1]
+            except Exception:
+                tw, th = 100, 100
+            x, y = (w - tw) // 2, (h - th) // 2 - 20
+            draw.text((x + 4, y + 4), txt, fill=(0, 0, 0), font=font_big)
+            draw.text((x, y),         txt, fill=col,       font=font_big)
+            return av.VideoFrame.from_ndarray(np.array(pil_draw), format="rgb24")
+
+        # ── Overlay MediaPipe Hands (mode capture gestes) ──
+        if self._hands is not None:
+            try:
+                results = self._hands.process(img_rgb)
+                if results.multi_hand_landmarks:
+                    # Dessin du squelette via MediaPipe (travaille en numpy RGB)
+                    annotated = img_rgb.copy()
+                    for hl in results.multi_hand_landmarks:
+                        self._mp_draw.draw_landmarks(
+                            annotated, hl,
+                            mp.solutions.hands.HAND_CONNECTIONS,
+                            self._mp_styles.get_default_hand_landmarks_style(),
+                            self._mp_styles.get_default_hand_connections_style(),
+                        )
+                    # Bandeau vert en bas via PIL pour garder RGB propre
+                    pil_ann = Image.fromarray(annotated)
+                    draw_ann = ImageDraw.Draw(pil_ann)
+                    h_a, w_a = annotated.shape[:2]
+                    draw_ann.rectangle([(0, h_a - 36), (w_a, h_a)], fill=(0, 120, 0))
+                    draw_ann.text((10, h_a - 28), "✓ Main détectée",
+                                  fill=(100, 255, 100))
+                    return av.VideoFrame.from_ndarray(np.array(pil_ann), format="rgb24")
+            except Exception:
+                pass
+
+        return frame  # aucune modification si pas de landmarks
 
 
 class VideoProcessor(VideoProcessorBase):
@@ -1763,10 +1853,11 @@ with tab_007:
         with lcol:
             ctx_learn = webrtc_streamer(
                 key="learn_cam",
-                video_processor_factory=VideoProcessor,
+                video_processor_factory=LightVideoProcessor,
                 media_stream_constraints={"video": True, "audio": False},
                 async_processing=True,
             )
+            st.caption("👋 La **main détectée** s'affiche en vert sur la vidéo — assure-toi de la voir avant de capturer !")
 
         with rcol:
             cd_box    = st.empty()
@@ -1804,13 +1895,32 @@ with tab_007:
                             captured_frames = list(ctx_learn.video_processor.frame_buffer)
 
                     if captured_frames:
-                        # Vote sur les frames pour choisir la meilleure frame centrale
+                        # Parcourt toutes les frames (depuis le milieu vers les bords)
+                        # pour trouver celle où MediaPipe détecte une main
+                        best_frame = None
+                        indices = []
                         mid = len(captured_frames) // 2
-                        frame_cap = captured_frames[mid]
-                        ok_g, msg_g = enregistrer_geste(frame_cap, geste_sel)
+                        for offset in range(len(captured_frames)):
+                            i_minus = mid - offset
+                            i_plus  = mid + offset
+                            if 0 <= i_minus < len(captured_frames) and i_minus not in indices:
+                                indices.append(i_minus)
+                            if 0 <= i_plus < len(captured_frames) and i_plus not in indices:
+                                indices.append(i_plus)
+                        for idx in indices:
+                            vec = get_gesture_landmark(captured_frames[idx])
+                            if vec is not None:
+                                best_frame = captured_frames[idx]
+                                break
+
+                        if best_frame is None:
+                            # Aucune frame avec main → essayer quand même la frame centrale
+                            best_frame = captured_frames[mid]
+
+                        ok_g, msg_g = enregistrer_geste(best_frame, geste_sel)
                         st.session_state.glearn_msg = msg_g if ok_g else f"❌ {msg_g}"
                     else:
-                        st.session_state.glearn_msg = "❌ Caméra inactive — lance la webcam d'abord !"
+                        st.session_state.glearn_msg = "❌ Caméra inactive — appuie sur START !"
                     st.rerun()
 
             # ── Bouton démarrer décompte ──
@@ -2158,7 +2268,7 @@ with tab_007:
             with wc1:
                 ctx_007 = webrtc_streamer(
                     key="game007",
-                    video_processor_factory=VideoProcessor,
+                    video_processor_factory=LightVideoProcessor,
                     media_stream_constraints={"video": True, "audio": False},
                     async_processing=True,
                 )

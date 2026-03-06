@@ -17,7 +17,7 @@ VisionIA est une application web temps réel qui utilise la **vision par ordinat
 | Modèle principal de classification | **ViT** `google/vit-base-patch16-224` via **HuggingFace Transformers** |
 | Modèle comparaison | **MobileNetV2** via **TensorFlow 2.20 / Keras** |
 | Reconnaissance faciale | **MTCNN** (TF) + **MobileNetV2** feature extractor (TF) |
-| Reconnaissance de gestes | **MobileNetV2** feature extractor (TF) |
+| Reconnaissance de gestes | **MediaPipe Hands** (landmarks CPU) |
 | Bot jeu 007 | **Q-learning** (Reinforcement Learning, NumPy) |
 | Base de données analyses | **MongoDB** local |
 | Stockage embeddings | Fichiers `.pkl` (sérialisation Python) |
@@ -62,7 +62,7 @@ VisionIA est une application web temps réel qui utilise la **vision par ordinat
 
 Deux sous-onglets :
 
-**Apprendre les gestes** : même pipeline d'embedding MobileNetV2 pour apprendre 3 gestes avec décompte automatique 3→2→1 sur la webcam :
+**Apprendre les gestes** : chaque geste est capturé via **MediaPipe Hands** qui extrait 21 landmarks 3D de la main (vecteur 63-dim normalisé). Un décompte automatique 3→ 2→ 1 s'affiche, le squelette de la main est dessiné en direct pour confirmer la détection, puis la capture se fait automatiquement :
 - 🤙 **Recharger** — doigts pointés à la tempe
 - 🔫 **Tirer** — main en pistolet
 - 🛡️ **Se protéger** — bras croisés
@@ -131,11 +131,26 @@ ImageNet (millions d'images) ──► Entraînement long ──► Poids sauveg
 Notre image (webcam) ──────────────────────────────────────────► Inférence directe
 ```
 
-Pour la **reconnaissance faciale et gestuelle**, on utilise le **feature extraction** :
+Pour la **reconnaissance faciale**, on utilise le **feature extraction** :
 - On coupe la tête de MobileNetV2 (la couche de classification finale)
-- On garde uniquement l'extracteur de features → sortie 1280 dimensions
-- Ce "projecteur" transforme toute image en un point dans un espace à 1280 dimensions
+- On garde uniquement l’extracteur de features → sortie 1280 dimensions
+- Ce “projecteur” transforme toute image en un point dans un espace à 1280 dimensions
 - Deux images similaires → deux points proches → distance euclidienne faible
+
+---
+
+## Reconnaissance de gestes — MediaPipe Hands
+
+**Principe :** Contrairement à MobileNetV2 qui est un classifieur d’objets général, **MediaPipe Hands** est spécialisé dans la détection et le suivi des mains.
+
+**Fonctionnement :**
+1. Un modèle de détection de paumes localise la main dans l’image
+2. Un deuxième modèle (régression) prédit les coordonnées 3D (x, y, z) de **21 landmarks** (poignet, jointures, bouts de doigts)
+3. Ces 21 points $\times$ 3 coordonnées = **63 dimensions**
+4. Le vecteur est **centré** sur le poignet (invariant en translation) et **normalisé** par la distance poignet → base du majeur (invariant en échelle)
+5. Deux gestes identiques sous différentes distances caméra ou positions produiront des vecteurs proches
+
+**En temps réel :** le squelette de la main (21 points + connexions) est dessiné sur le flux webcam avec un bandeau vert “✓ Main détectée” — le joueur sait instantanément si sa main est bien captée avant d’appuyer sur capture.
 
 ---
 
@@ -260,7 +275,7 @@ Thread principal recv()  ── 30 fps, ne bloque JAMAIS
             L'overlay webcam lit self.result sans jamais bloquer
 ```
 
-**Optimization jeu 007 :** la reconnaissance de gestes utilise un **batch inference** — toutes les frames du buffer sont envoyées en un seul appel `predict()` au lieu de N appels séquentiels (gain ×5 à ×9 en temps).
+**Optimization jeu 007 :** la reconnaissance de gestes utilise **MediaPipe Hands** qui tourne sur CPU en ~1 ms par frame. Un vote majoritaire est effectué sur 7 frames du buffer — rapide et sans appel de modèle lourd.
 
 ---
 
@@ -271,7 +286,7 @@ Thread principal recv()  ── 30 fps, ne bloque JAMAIS
 | Classification images (principal) | **Supervisé — zero-shot** | Vision Transformer (ViT) |
 | Classification images (comparaison) | **Supervisé — zero-shot** | CNN MobileNetV2 |
 | Reconnaissance faciale | **Supervisé — few-shot** | Transfer Learning + distance L2 |
-| Reconnaissance gestes 007 | **Supervisé — few-shot** | Transfer Learning + distance L2 |
+| Reconnaissance gestes 007 | **Supervisé — few-shot** | MediaPipe Hands + distance L2 |
 | Bot adversaire 007 | **Par renforcement** | Q-learning tabulaire (Bellman) |
 
 - **Zero-shot** = pré-entraîné sur ImageNet, utilisé directement sans aucun réentraînement
@@ -289,8 +304,10 @@ Thread principal recv()  ── 30 fps, ne bloque JAMAIS
 | TensorFlow non installé | `pip install tensorflow` (v2.20.0) |
 | F-strings Python 3.11 avec backslash | Variables intermédiaires — bug Python < 3.12 |
 | Apostrophe dans nom de colonne Vega-Lite | Renommage de la colonne — parseur Vega ne supporte pas les apostrophes dans les chemins de champs |
-| Jeu 007 trop lent (9 appels predict séquentiels) | Batch inference : 1 seul appel pour N frames |
-| Compétition sur le modèle TF pendant le jeu | Suspension du thread d'analyse quand l'overlay 007 est actif |
+| Mauvaise reconnaissance de gestes (MobileNetV2 général) | Remplacement par **MediaPipe Hands** (landmarks spécialisés main) |
+| Jeu 007 trop lent (N appels predict séquentiels) | Vote multi-frames MediaPipe (CPU, ~1 ms/frame) |
+| Page qui s'assombrit pendant le jeu 007 | Suppression des `time.sleep()` → `st_autorefresh` pur JavaScript |
+| Compétition sur le modèle TF pendant le jeu | Suspension du thread d'analyse quand l'overlay 007 est actif + `LightVideoProcessor` dédié |
 
 ## Réussites
 
