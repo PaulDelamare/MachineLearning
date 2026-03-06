@@ -2015,59 +2015,65 @@ with tab_007:
                 """, unsafe_allow_html=True)
                 st.progress(prog_r)
 
-            elif phase in ("c0a", "c0b"):
-                label_txt = "0" if phase == "c0a" else "00"
-                st.markdown(f"""
-                <div style='text-align:center; padding:50px 20px;
-                            border:3px solid #ffa500; border-radius:20px;
-                            background:#1a1000; max-width:400px; margin:auto;'>
-                    <p style='color:#aaa; margin:0 0 8px;'>Manche {manche} — prépare ton geste !</p>
-                    <h1 style='font-size:7em; margin:0; color:#ffa500; letter-spacing:0.1em;'>{label_txt}</h1>
-                </div>
-                """, unsafe_allow_html=True)
+            elif phase in ("c0a", "c0b", "c7"):
+                # ── Caméra toujours visible, overlay 0 / 00 / 007 ──
+                if phase == "c0a":
+                    ov_txt = "0";   ov_col = "#ffa500"; do_click = False
+                elif phase == "c0b":
+                    ov_txt = "00";  ov_col = "#ffa500"; do_click = False
+                else:
+                    ov_txt = "007"; ov_col = "#ff4444"; do_click = True
 
-            elif phase == "c7":
                 shot = st.camera_input(
-                    "Fais ton geste !",
-                    key=f"g007_shot_{manche}",
+                    "Manche " + str(manche) + " — prépare ton geste !",
+                    key=f"g007_cam_{manche}",
                     label_visibility="collapsed",
                 )
-                # Overlay "007" sur la caméra via JS
-                t_restant = max(0, 9 - int(elapsed))
-                col_t = "#ff4444" if t_restant <= 3 else "#ff8800"
+
+                # JS : overlay texte + auto-click quand 007
                 components.html(f"""
                 <script>
                 (function() {{
                     var doc = window.parent.document;
-                    var old = doc.getElementById('g007-shot-ov');
-                    if (old) {{
-                        var sp = old.querySelector('.g007-txt');
-                        if (sp) sp.textContent = '007';
-                        var tm = old.querySelector('.g007-timer');
-                        if (tm) {{ tm.textContent = '{t_restant}s'; tm.style.color = '{col_t}'; }}
-                        return;
-                    }}
                     var cam = doc.querySelector('[data-testid="stCameraInput"]');
                     if (!cam) return;
-                    cam.style.position = 'relative';
-                    var ov = doc.createElement('div');
-                    ov.id = 'g007-shot-ov';
-                    ov.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:60px;'
-                                     + 'background:rgba(0,0,0,0.45);display:flex;flex-direction:column;'
-                                     + 'align-items:center;justify-content:center;'
-                                     + 'z-index:9999;border-radius:10px;pointer-events:none;';
-                    ov.innerHTML = '<span class="g007-txt" style="color:#ff4444;font-size:5em;'
-                                 + 'font-weight:900;letter-spacing:0.15em;'
-                                 + 'text-shadow:0 0 40px #ff4444;">007</span>'
-                                 + '<span class="g007-timer" style="color:{col_t};font-size:1.6em;'
-                                 + 'margin-top:4px;">{t_restant}s</span>';
-                    cam.appendChild(ov);
+
+                    var ov = doc.getElementById('g007-cnt-ov');
+                    if (!ov) {{
+                        cam.style.position = 'relative';
+                        ov = doc.createElement('div');
+                        ov.id = 'g007-cnt-ov';
+                        ov.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:60px;'
+                            + 'background:rgba(0,0,0,0.35);display:flex;align-items:center;'
+                            + 'justify-content:center;z-index:9999;border-radius:10px;pointer-events:none;';
+                        cam.appendChild(ov);
+                    }}
+
+                    // Mettre à jour (ou créer) le span texte
+                    var sp = ov.querySelector('.g007-sp');
+                    if (!sp) {{
+                        sp = doc.createElement('span');
+                        sp.className = 'g007-sp';
+                        ov.appendChild(sp);
+                    }}
+                    sp.textContent = '{ov_txt}';
+                    sp.style.cssText = 'color:{ov_col};font-size:6em;font-weight:900;'
+                        + 'letter-spacing:0.15em;text-shadow:0 0 50px {ov_col};';
+
+                    // Auto-clic unique quand 007 s'affiche
+                    if ('{ov_txt}' === '007' && !ov.dataset.clicked) {{
+                        ov.dataset.clicked = '1';
+                        setTimeout(function() {{
+                            var btn = cam.querySelector('button');
+                            if (btn) btn.click();
+                        }}, 350);
+                    }}
                 }})();
                 </script>
                 """, height=1, scrolling=False)
 
-                # Traitement : photo prise OU timeout 9s
-                if shot is not None or elapsed >= 9.0:
+                # Traitement : photo prise (auto-clic 007) OU timeout
+                if phase == "c7" and (shot is not None or elapsed >= 9.0):
                     if shot is not None:
                         pil_shot = Image.open(shot).convert("RGB")
                         j_geste, j_conf = reconnaitre_geste(pil_shot)
