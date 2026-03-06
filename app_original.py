@@ -17,6 +17,7 @@ from bson.objectid import ObjectId
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 import av
 from streamlit_autorefresh import st_autorefresh
+import streamlit.components.v1 as components
 
 # ─────────────────────────────────────────────
 # CONFIGURATION DE LA PAGE
@@ -1554,72 +1555,96 @@ with tab_007:
         st.caption(f"💡 {gcfg_sel['desc']}")
         st.markdown("")
 
-        # ── Webcam unique + décompte ──
+        # ── Caméra toujours visible + overlay countdown + auto-clic ──
         lcol, rcol = st.columns([1.2, 1])
 
         with lcol:
-            cd_start = st.session_state.glearn_cd_start
             nb_deja  = len(db_gestes.get(geste_sel, []))
+            cd_start = st.session_state.glearn_cd_start
 
-            if cd_start is not None:
-                elapsed_cd = time.time() - cd_start
-                remaining  = 3.0 - elapsed_cd
+            # La caméra est TOUJOURS affichée (clé change après chaque photo)
+            snap = st.camera_input(
+                f"{gcfg_sel['emoji']} {gcfg_sel['label']}",
+                key=f"glearn_cam_{geste_sel}_{nb_deja}",
+                label_visibility="collapsed",
+            )
 
-                if remaining > 0:
-                    step = int(remaining) + 1  # 3, 2, 1
-                    col_cd = {3: "#ffa500", 2: "#ff6600", 1: "#ff2222"}.get(step, "#ff2222")
-                    st.markdown(
-                        f"<div style='text-align:center; padding:40px 20px; "
-                        f"border:3px solid {col_cd}; border-radius:20px; background:#160500;'>"
-                        f"<p style='color:#aaa; margin:0 0 8px;'>Prépare ton geste :</p>"
-                        f"<h1 style='font-size:7em; margin:0; color:{col_cd};'>{step}</h1>"
-                        f"<p style='color:#aaa; font-size:1.1em; margin-top:8px;'>{gcfg_sel['emoji']} {gcfg_sel['label']}</p>"
-                        f"</div>",
-                        unsafe_allow_html=True
-                    )
-                    st_autorefresh(interval=300, key="glearn_cd_tick")
+            # Traitement du snap (auto-clic ou clic manuel)
+            if snap is not None:
+                pil_snap = Image.open(snap).convert("RGB")
+                ok_g, msg_g = enregistrer_geste(pil_snap, geste_sel)
+                st.session_state.glearn_msg      = msg_g if ok_g else f"❌ {msg_g}"
+                st.session_state.glearn_cd_start = None
+                st.rerun()
 
-                else:
-                    # Décompte terminé → afficher camera_input
-                    st.session_state.glearn_cd_start = None
-                    st.markdown(
-                        f"<div style='text-align:center; padding:12px; "
-                        f"border:3px solid #ff2222; border-radius:12px; background:#200000; margin-bottom:8px;'>"
-                        f"<b style='color:#ff2222; font-size:1.2em;'>📸 MAINTENANT — fais ton geste {gcfg_sel['emoji']} !</b>"
-                        f"</div>",
-                        unsafe_allow_html=True
-                    )
-                    snap = st.camera_input(
-                        f"{gcfg_sel['emoji']} {gcfg_sel['label']}",
-                        key=f"glearn_snap_{geste_sel}_{nb_deja}",
-                    )
-                    if snap is not None:
-                        pil_snap = Image.open(snap).convert("RGB")
-                        ok_g, msg_g = enregistrer_geste(pil_snap, geste_sel)
-                        st.session_state.glearn_msg = msg_g if ok_g else f"❌ {msg_g}"
-                        st.rerun()
-
-            else:
-                # Repos : affichage neutre + bouton
-                nb_sel_l = len(db_gestes.get(geste_sel, []))
-                st.markdown(
-                    f"<div style='text-align:center; padding:36px 20px; "
-                    f"border:2px dashed #444; border-radius:16px;'>"
-                    f"<div style='font-size:3.5em; margin-bottom:6px;'>{gcfg_sel['emoji']}</div>"
-                    f"<p style='color:#aaa; margin:0;'>{gcfg_sel['label']}</p>"
-                    f"<p style='color:#777; font-size:0.9em; margin:6px 0 0;'>{nb_sel_l} photo(s) enregistrée(s)</p>"
-                    f"</div>",
-                    unsafe_allow_html=True
-                )
+            # ── État REPOS : bouton démarrer ──
+            if cd_start is None:
                 if st.button(
-                    f"📸 Capturer dans 3 secondes — {gcfg_sel['emoji']} {gcfg_sel['label']}",
-                    key="btn_capture_geste",
+                    f"⏱️  3, 2, 1 — GO !",
+                    key="btn_glearn_start",
                     type="primary",
                     use_container_width=True,
                 ):
                     st.session_state.glearn_cd_start = time.time()
                     st.session_state.glearn_msg = ""
                     st.rerun()
+
+            # ── État COUNTDOWN : overlay numérique via JS ──
+            elif cd_start != "done":
+                elapsed_cd = time.time() - cd_start
+                remaining  = 3.0 - elapsed_cd
+
+                if remaining > 0:
+                    step   = int(remaining) + 1   # 3, puis 2, puis 1
+                    col_cd = {3: "#ffa500", 2: "#ff6600", 1: "#ff2222"}.get(step, "#ff2222")
+                    # Injecter l'overlay DANS le widget caméra via JS
+                    components.html(f"""
+                    <script>
+                    (function() {{
+                        var doc = window.parent.document;
+                        var old = doc.getElementById('glearn-cd-ov');
+                        if (old) {{
+                            // Mise à jour rapide sans recréer le div
+                            var sp = old.querySelector('span');
+                            if (sp) {{ sp.textContent = '{step}'; sp.style.color = '{col_cd}'; sp.style.textShadow = '0 0 30px {col_cd}'; }}
+                            return;
+                        }}
+                        var cam = doc.querySelector('[data-testid="stCameraInput"]');
+                        if (!cam) return;
+                        cam.style.position = 'relative';
+                        var ov = doc.createElement('div');
+                        ov.id = 'glearn-cd-ov';
+                        ov.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;'
+                                         + 'background:rgba(0,0,0,0.62);display:flex;'
+                                         + 'align-items:center;justify-content:center;'
+                                         + 'z-index:9999;border-radius:10px;pointer-events:none;';
+                        ov.innerHTML = '<span style="color:{col_cd};font-size:8em;font-weight:900;'
+                                     + 'text-shadow:0 0 30px {col_cd};">{step}</span>';
+                        cam.appendChild(ov);
+                    }})();
+                    </script>
+                    """, height=1, scrolling=False)
+                    st_autorefresh(interval=280, key="glearn_cd_tick")
+
+                else:
+                    # Compte à rebours écoulé → auto-clic sur le bouton de la camera
+                    st.session_state.glearn_cd_start = "done"
+                    components.html("""
+                    <script>
+                    (function() {
+                        var doc = window.parent.document;
+                        var ov = doc.getElementById('glearn-cd-ov');
+                        if (ov) ov.remove();
+                        // Cliquer sur le bouton capture du widget camera_input
+                        var btns = doc.querySelectorAll('[data-testid="stCameraInput"] button');
+                        if (btns.length) btns[btns.length - 1].click();
+                    })();
+                    </script>
+                    """, height=1, scrolling=False)
+
+            # ── État DONE : en attente du retour Streamlit (snap)
+            elif cd_start == "done":
+                st.caption("⏳ Photo en cours de traitement...")
 
         with rcol:
             nb_sel = len(db_gestes.get(geste_sel, []))
