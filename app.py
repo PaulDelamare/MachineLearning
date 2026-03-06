@@ -1168,20 +1168,19 @@ with tab_analyse:
 
         image_source = None
         uploaded_file = None
-        ctx = None
+        pil_image     = None
 
         if mode == "📷 Webcam (temps réel)":
-            st.caption("⚡ La catégorie s'affiche sur la vidéo. Cliquez START pour lancer.")
-            ctx = webrtc_streamer(
-                key="visionai-live",
-                video_processor_factory=VideoProcessor,
-                media_stream_constraints={"video": True, "audio": False},
-                async_processing=True,
-            )
+            st.caption("📸 Pointe ta caméra vers l'objet et prends une photo — résultat immédiat, sans cliquer sur Start !")
+            webcam_snap = st.camera_input("Prendre une photo", key="analyse_webcam")
+            if webcam_snap is not None:
+                pil_image    = Image.open(webcam_snap).convert("RGB")
+                image_source = {"name": "webcam.jpg", "size": len(webcam_snap.getvalue())}
+                st.image(pil_image, caption="Photo webcam", use_container_width=True)
         else:
             uploaded_file = st.file_uploader("Choisissez un fichier image", type=["png", "jpg", "jpeg", "webp"])
             if uploaded_file is not None:
-                pil_image = Image.open(uploaded_file).convert("RGB")
+                pil_image    = Image.open(uploaded_file).convert("RGB")
                 image_source = {"name": uploaded_file.name, "size": uploaded_file.size}
                 st.image(pil_image, caption=uploaded_file.name, use_container_width=True)
                 st.caption(f"Taille : {image_source['size']} octets")
@@ -1189,75 +1188,10 @@ with tab_analyse:
     with zone_resultat:
         st.subheader("🧠 Résultat de l'Analyse")
 
-        # ── MODE WEBCAM TEMPS RÉEL ──
-        if mode == "📷 Webcam (temps réel)":
-            if ctx and ctx.state.playing and ctx.video_processor:
-                with ctx.video_processor.lock:
-                    live_result    = ctx.video_processor.result
-                    live_result_tf = ctx.video_processor.result_tf
+        # ── WEBCAM (snapshot) ou FICHIER — même pipeline ──
+        if mode == "📷 Webcam (temps réel)" and image_source is None:
+            st.info("📸 Prends une photo à gauche pour lancer l'analyse.")
 
-                if live_result:
-                    cfg = CATEGORY_CONFIG.get(live_result["categorie"], CATEGORY_CONFIG["Inconnu"])
-
-                    # ── Nom reconnu ? ──
-                    nom_reconnu = live_result.get("nom_visage")
-                    conf_visage = live_result.get("conf_visage")
-                    if nom_reconnu:
-                        st.markdown(f"""
-                        <div style='background:#1a3a1a; border:2px solid #4caf50; border-radius:12px;
-                                    padding:12px 20px; text-align:center; margin-bottom:8px;'>
-                            <span style='font-size:1.8em'>👋</span>
-                            <h3 style='color:#4caf50; margin:4px 0;'>Bonjour <b>{nom_reconnu}</b> !</h3>
-                            <p style='color:#aaa; margin:0;'>Confiance visage : {conf_visage}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"## {cfg['emoji']} {live_result['categorie']}")
-                        if live_result["categorie"] == "Humain":
-                            st.caption("👤 Visage non reconnu — enregistre-toi dans **👥 Reconnaissances de visages** !")
-
-                    c1, c2 = st.columns(2)
-                    c1.metric("Catégorie détectée", live_result["categorie"])
-                    c2.metric("Confiance", live_result["score_pct"])
-                    st.info(f"Label : `{live_result['label_reconnu']}`")
-                    if live_result["easter_egg"]:
-                        st.balloons()
-                        st.warning(live_result["easter_egg"])
-                    else:
-                        st.success(cfg["message"])
-
-                    if live_result_tf:
-                        cfg_tf_l = CATEGORY_CONFIG.get(live_result_tf["categorie"], CATEGORY_CONFIG["Inconnu"])
-                        accord      = live_result["categorie"] == live_result_tf["categorie"]
-                        accord_txt  = "✅ accord ViT" if accord else "⚠️ diverge de ViT"
-                        st.caption(
-                            f"🔷 **TF MobileNetV2** → {cfg_tf_l['emoji']} {live_result_tf['categorie']} "
-                            f"({live_result_tf['score_pct']}) {accord_txt}"
-                        )
-
-                    st.markdown("---")
-                    if st.button("💾 Sauvegarder cette détection dans MongoDB", type="primary"):
-                        try:
-                            collection.insert_one({
-                                "date": datetime.now(),
-                                "nom": "webcam_live.jpg",
-                                "taille": 0,
-                                "analyse": {
-                                    "taux_reussite": live_result["score_pct"],
-                                    "type_reconnu": live_result["categorie"],
-                                    "label_brut": live_result["label_brut"],
-                                    "label_reconnu": live_result["label_reconnu"],
-                                }
-                            })
-                            st.success("✅ Sauvegardé dans MongoDB !")
-                        except Exception as e:
-                            st.error(f"Erreur MongoDB : {e}")
-                else:
-                    st.info("⏳ En attente de la première analyse... (environ 2 secondes après START)")
-            else:
-                st.info("▶️ Cliquez sur START dans le flux vidéo pour lancer la détection en temps réel.")
-
-        # ── MODE FICHIER ──
         elif image_source is not None:
             with st.spinner("Analyse en cours par le modèle ViT..."):
                 resultat = analyser_image(pil_image)
@@ -1420,6 +1354,7 @@ with tab_jeu:
         ("game_active", False), ("game_over", False), ("game_round", 1),
         ("game_score", 0), ("game_history", []), ("game_defi_order", []),
         ("game_start_time", 0.0), ("game_round_won", False),
+        ("game_snap_result", None), ("game_snap_result_tf", None), ("game_snap_round", -1),
     ]:
         if _key not in st.session_state:
             st.session_state[_key] = _val
@@ -1541,22 +1476,21 @@ with tab_jeu:
         gcol1, gcol2 = st.columns([1, 1], gap="large")
 
         with gcol1:
-            st.caption("📷 Lance la caméra et pointe-la vers l'objet !")
-            ctx_game = webrtc_streamer(
-                key="game-webcam",
-                video_processor_factory=VideoProcessor,
-                media_stream_constraints={"video": True, "audio": False},
-                async_processing=True,
-            )
+            st.caption("� Montre l'objet à la caméra et prends une photo — pas besoin de cliquer Start !")
+            game_snap = st.camera_input("📷 Prendre une photo", key=f"game_snap_{st.session_state.game_round}")
+            if game_snap is not None and st.session_state.game_snap_round != st.session_state.game_round:
+                pil_gsnap = Image.open(game_snap).convert("RGB")
+                with st.spinner("Analyse en cours..."):
+                    st.session_state.game_snap_result    = analyser_image(pil_gsnap)
+                    st.session_state.game_snap_result_tf = analyser_image_tf(pil_gsnap)
+                    st.session_state.game_snap_round     = st.session_state.game_round
+                st.rerun()
 
         with gcol2:
             st.subheader("🎯 Détection en cours...")
-            game_result    = None
-            game_result_tf = None
-            if ctx_game and ctx_game.state.playing and ctx_game.video_processor:
-                with ctx_game.video_processor.lock:
-                    game_result    = ctx_game.video_processor.result
-                    game_result_tf = ctx_game.video_processor.result_tf
+            _snap_ok    = st.session_state.game_snap_round == st.session_state.game_round
+            game_result    = st.session_state.game_snap_result    if _snap_ok else None
+            game_result_tf = st.session_state.game_snap_result_tf if _snap_ok else None
 
             if game_result:
                 detected_cat = game_result["categorie"]
@@ -1623,7 +1557,7 @@ with tab_jeu:
                         st.session_state.game_round_won = False
                     st.rerun()
             else:
-                st.info("⏳ Lance la caméra et pointe-la vers l'objet !")
+                st.info("📸 Prends une photo à gauche de l'objet demandé !")
 
         # ── Temps écoulé ──
         if remaining <= 0 and not st.session_state.game_round_won:
@@ -1816,8 +1750,11 @@ with tab_007:
 
         # ── Init session state ──
         for _k, _dv in [
-            ("glearn_geste_sel", list(GESTURES_CONFIG.keys())[0]),
-            ("glearn_msg",       ""),
+            ("glearn_geste_sel",  list(GESTURES_CONFIG.keys())[0]),
+            ("glearn_msg",        ""),
+            ("glearn_cd_active",  False),
+            ("glearn_cd_start",   0.0),
+            ("glearn_last_geste", ""),
         ]:
             if _k not in st.session_state:
                 st.session_state[_k] = _dv
@@ -1863,6 +1800,13 @@ with tab_007:
         )
         gcfg_sel = GESTURES_CONFIG[geste_sel]
         st.caption(f"💡 {gcfg_sel['desc']}")
+
+        # Si le geste sélectionné change, réinitialiser le compte à rebours
+        if st.session_state.glearn_last_geste != geste_sel:
+            st.session_state.glearn_cd_active = False
+            st.session_state.glearn_cd_start  = 0.0
+            st.session_state.glearn_last_geste = geste_sel
+
         st.markdown("")
 
         # ── Capture par photo directe ──
@@ -1870,11 +1814,55 @@ with tab_007:
         snap_col, info_col = st.columns([1.3, 1])
 
         with snap_col:
-            nb_deja = len(db_gestes.get(geste_sel, []))
-            snap = st.camera_input(
-                f"📸 {gcfg_sel['emoji']} {gcfg_sel['label']} — positionne ta main et clique sur Take photo",
-                key=f"cam_learn_{geste_sel}_{nb_deja}",  # clé unique → reset après chaque capture
-            )
+            nb_deja    = len(db_gestes.get(geste_sel, []))
+            snap       = None
+            cd_active  = st.session_state.glearn_cd_active
+            cd_elapsed = (time.time() - st.session_state.glearn_cd_start) if cd_active else 0.0
+            CD_TOTAL   = 3  # secondes
+
+            if cd_active and cd_elapsed < CD_TOTAL:
+                # ── Compte à rebours actif ──
+                cd_remain = CD_TOTAL - int(cd_elapsed)  # 3, 2, 1
+                st_autorefresh(interval=300, key="glearn_cd_tick")
+                colors = {3: "#ffa500", 2: "#ff6600", 1: "#ff2222"}
+                col_cd = colors.get(cd_remain, "#ff2222")
+                st.markdown(f"""
+                <div style='text-align:center; padding:40px 20px;
+                            border:3px solid {col_cd}; border-radius:20px;
+                            background:#160500;'>
+                    <p style='color:#aaa; font-size:1.1em; margin:0 0 10px;'>Prépare ton geste {gcfg_sel['emoji']}</p>
+                    <h1 style='color:{col_cd}; font-size:7em; margin:0; letter-spacing:0.1em;'>{cd_remain}</h1>
+                </div>
+                """, unsafe_allow_html=True)
+
+            elif cd_active:
+                # ── Compte à rebours terminé → camera_input ──
+                snap = st.camera_input(
+                    f"📸  {gcfg_sel['emoji']} MAINTENANT — fais ton geste !",
+                    key=f"cam_learn_{geste_sel}_{nb_deja}",
+                )
+                if snap is None:
+                    if st.button("🔄 Relancer le compte à rebours", key="btn_cd_redo"):
+                        st.session_state.glearn_cd_active = False
+                        st.session_state.glearn_cd_start  = 0.0
+                        st.rerun()
+            else:
+                # ── Repos : bouton de départ ──
+                st.markdown(f"""
+                <div style='text-align:center; padding:36px 20px;
+                            border:2px dashed #555; border-radius:16px;'>
+                    <div style='font-size:3.5em; margin-bottom:6px;'>{gcfg_sel['emoji']}</div>
+                    <p style='color:#aaa; margin:0;'>Prêt(e) ? Lance le compte à rebours,
+                    puis fais ton geste devant la caméra.</p>
+                </div>
+                """, unsafe_allow_html=True)
+                st.markdown("")
+                if st.button(f"⏱️  3, 2, 1… LANCE !", key="btn_cd_start",
+                             type="primary", use_container_width=True):
+                    # Changer de geste = réinitialiser aussi
+                    st.session_state.glearn_cd_active = True
+                    st.session_state.glearn_cd_start  = time.time()
+                    st.rerun()
 
         with info_col:
             nb_sel = len(db_gestes.get(geste_sel, []))
@@ -1914,7 +1902,9 @@ with tab_007:
         if snap is not None:
             pil_snap = Image.open(snap).convert("RGB")
             ok_g, msg_g = enregistrer_geste(pil_snap, geste_sel)
-            st.session_state.glearn_msg = msg_g if ok_g else f"❌ {msg_g}"
+            st.session_state.glearn_msg      = msg_g if ok_g else f"❌ {msg_g}"
+            st.session_state.glearn_cd_active = False   # reset pour la prochaine capture
+            st.session_state.glearn_cd_start  = 0.0
             st.rerun()
 
         st.markdown("---")
