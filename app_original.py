@@ -1100,7 +1100,7 @@ with tab_analyse:
 
         st.markdown("### 📊 Répartition des catégories détectées")
         comptage = df["Catégorie"].value_counts().reset_index()
-        comptage.columns = ["Catégorie", "Nombre d'analyses"]
+        comptage.columns = ["Catégorie", "Nb analyses"]
         st.bar_chart(data=comptage.set_index("Catégorie"))
 
         st.markdown("### 🗑️ Supprimer un enregistrement")
